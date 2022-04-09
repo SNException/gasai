@@ -1,0 +1,433 @@
+#!/usr/bin/java --source 17
+
+//                        _ 
+//                       (_)
+//   __ _  __ _ ___  __ _ _ 
+//  / _` |/ _` / __|/ _` | |
+// | (_| | (_| \__ \ (_| | |
+//  \__, |\__,_|___/\__,_|_|
+//   __/ |                  
+//  |___/                   
+//             - Niklas Schultz
+//
+//
+// gasai - personal "security" tool for my paranoia :)
+//
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.concurrent.atomic.LongAdder;
+
+public final class gasai {
+
+    private static final String VERSION = "0.1.0";
+
+    private static final String VT_RESET     = "\u001B[0m";
+    private static final String VT_BOLD      = "\u001B[1m";
+    private static final String VT_RED_FG    = "\u001B[31m";
+    private static final String VT_GREEN_FG  = "\u001B[32m";
+    private static final String VT_PURPLE_FG = "\u001B[35m";
+    
+    private static final Path filesSnapshotFile = Path.of(System.getProperty("user.home"), ".gasai_files");
+    private static final Path rcFile       = Path.of(System.getProperty("user.home"), ".gasairc");
+
+    private static final class Config {
+        private Config() { assert false; }
+
+        public static int delayMillis = 0;
+        // todo(nschultz): This works but it causes weird behaviour when we have files which are being modified, added and deleted with this size
+        public static int maxSizeKB   = 0;
+        public static String[] dirs   = null;
+    }
+
+    private static final class Results {
+        public final int changed;
+        public final int added;
+        public final int missing;
+
+        public Results(final int changed, final int added, final int missing) {
+            this.changed = changed;
+            this.added   = added;
+            this.missing = missing;
+        }
+    }
+
+    private static String execShellCommandWait(final String cmdLine) {
+        try {
+            final Process process = Runtime.getRuntime().exec(cmdLine);
+            process.waitFor();
+
+            final int exitValue = process.exitValue();
+            if (exitValue == 0) {
+                final InputStream in = process.getInputStream();
+                final StringBuilder result = new StringBuilder();
+                for (;;) {
+                    final byte[] buf = new byte[4096];
+                    final int readBytes = in.read(buf);
+                    if (readBytes < 0) {
+                        return result.toString();
+                    }
+                    result.append(new String(buf, 0, readBytes, StandardCharsets.UTF_8));
+                }
+            } else {
+                final InputStream in = process.getErrorStream();
+                final StringBuilder result = new StringBuilder();
+                for (;;) {
+                    final byte[] buf = new byte[4096];
+                    final int readBytes = in.read(buf);
+                    if (readBytes < 0) {
+                        return result.toString();
+                    }
+                    result.append(new String(buf, 0, readBytes, StandardCharsets.UTF_8));
+                }
+            }
+        } catch (final IOException ex) {
+            return null;
+        } catch (final InterruptedException ex) {
+            assert false : String.format("Not supposed to interrupt thread '%s'");
+            return null;
+        }
+    }
+
+    private static boolean listFiles(final String start, final String filter, final ArrayList<String> files) {
+        assert start  != null;
+        assert filter != null;
+        assert files  != null;
+
+        final File directory = new File(start);
+        final File[] list = directory.listFiles();
+        if (list != null) {
+            for (final File file : list) {
+                // Hack for Linux
+                if (file.getName().equals("X11")) continue;
+                if ((file.length() / 1024) > Config.maxSizeKB) continue; // prevent possible OOM
+
+                if (file.isFile()) {
+                    if (filter != null) {
+                        if (file.getName().matches(filter)) {
+                            files.add(file.getAbsolutePath());
+                        }
+                    } else {
+                        files.add(file.getAbsolutePath());
+                    }
+                } else if (file.isDirectory()) {
+                    listFiles(file.getAbsolutePath(), filter, files);
+                }
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private static void sleepMillis(final long millis) {
+        try {
+            Thread.sleep(millis, 0);
+        } catch (final InterruptedException ex) {
+            assert false : String.format("Not supposed to interrupt thread '%s'\n", Thread.currentThread().getName());
+        }
+    }
+
+    private static Results check() {
+        System.out.println();
+        System.out.println(VT_BOLD + "Checking filesystem..." + VT_RESET);
+
+        // have to use these wrappers due to stupid '...must be effectively final' bs.
+        final LongAdder changed = new LongAdder();
+        final LongAdder added   = new LongAdder();
+        final LongAdder missing = new LongAdder();
+
+        final HashMap<String, String> oldSnapshot = new HashMap<>();
+        retrieve_old_snapshot: {
+            if (!Files.exists(filesSnapshotFile)) {
+                System.out.println("No snapshot file found!");
+                System.out.println("Did you run 'gasai --update' beforehand?");
+                System.exit(-3);
+            }
+
+            try {
+                final String[] snapshotLines = Files.readString(filesSnapshotFile).split("\n");
+
+                for (int i = 0; i < snapshotLines.length; ++i) {
+                    final String line = snapshotLines[i];
+
+                    final String file = line.split(":")[0];
+                    final String hash = line.split(":")[1];
+
+                    oldSnapshot.put(file, hash);
+                }
+
+            } catch (final IOException ex) {
+                System.out.println("ERROR gasai: Failed to load snapshot file: " + ex.toString());
+                System.exit(-3);
+            }
+        }
+
+        final ArrayList<String> currentFiles = new ArrayList<>();
+        retrieve_current_files: {
+            for (int i = 0; i < Config.dirs.length; ++i) {
+                if (Files.notExists(Path.of(Config.dirs[i]))) {
+                    System.out.printf("The directory '%s' does not exist. Perhaps you forgot to mount it?\n", Config.dirs[i]);
+                    System.exit(-20);
+                }
+
+                final boolean success = listFiles(Config.dirs[i], null, currentFiles);
+                if (!success) {
+                    System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
+                    System.exit(-3);
+                }
+            }
+        }
+
+        compare_old_snapshot_with_current_state: {
+            oldSnapshot.forEach((final String file, final String sha) -> {
+                // todo(nschultz): Handle long files names
+                // final String cutFileName = file.length() > (80 - 58) ? file.substring(file.length() - 58) : file;
+                // System.out.println(cutFileName);
+
+                currentFiles.remove(file);
+
+                if (Files.exists(Path.of(file))) {
+                    try {
+                        final byte[] data = Files.readAllBytes(Path.of(file));
+                        final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                        final byte[] hash = digest.digest(data);
+                        final StringBuilder currentHash = new StringBuilder(hash.length);
+                        for (final byte b : hash) currentHash.append(String.format("%02X", b));
+
+                        if (currentHash.toString().equals(sha)) {
+                            System.out.printf("  %-59s [ %s ]\n", file, VT_GREEN_FG + "OK" + VT_RESET);
+                        } else {
+                            System.out.printf("  %-59s [ %s ]\n", file, VT_RED_FG + "CHANGED" + VT_RESET);
+                            changed.increment();
+                        }
+                    } catch (final Exception ex) {
+                        System.out.println("ERROR gasai: Failed to compare old snapshot: " + ex.toString());
+                        System.exit(-4);
+                    }
+                } else {
+                    System.out.printf("  %-59s [ %s ]\n", file, VT_RED_FG + "MISSING" + VT_RESET);
+                    missing.increment();
+                }
+                if (Config.delayMillis > 0) {
+                    sleepMillis(Config.delayMillis);
+                }
+            });
+
+            // every file left in this list must be a newly added one, and hence we report it
+            for (int i = 0; i < currentFiles.size(); ++i) {
+                System.out.printf("  %-59s [ %s ]\n", currentFiles.get(i), VT_RED_FG + "ADDED" + VT_RESET);
+                added.increment();
+
+                if (Config.delayMillis > 0) {
+                    sleepMillis(Config.delayMillis);
+                }
+            }
+        }
+
+        return new Results(changed.intValue(), added.intValue(), missing.intValue());
+    }
+
+    private static void update() {
+        files: {
+            final ArrayList<String> files = new ArrayList<>();
+            final HashMap<String, String> mapping = new HashMap<>();
+
+            for (int i = 0; i < Config.dirs.length; ++i) {
+                final boolean success = listFiles(Config.dirs[i], null, files);
+                if (!success) {
+                    System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
+                    System.exit(-3);
+                }
+            }
+
+            get_sha_hashes: {
+                for (final String file : files) {
+                    try {
+                        final byte[] data = Files.readAllBytes(Path.of(file));
+                        final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                        final byte[] hash = digest.digest(data);
+                        final StringBuilder sbuffer = new StringBuilder(hash.length);
+                        for (final byte b : hash) sbuffer.append(String.format("%02X", b));
+                        mapping.put(file, sbuffer.toString());
+
+                        System.out.printf("  %-59s [ %s ]\n", file, VT_GREEN_FG + "FETCHED" + VT_RESET);
+
+                        if (Config.delayMillis > 0) {
+                            sleepMillis(Config.delayMillis);
+                        }
+
+                    } catch (final Exception ex) {
+                        System.out.printf("ERROR gasai: Failed to retrieve sha hash from '%s'\n", file);
+                        System.exit(-4);
+                    }
+                }
+            }
+
+            write_to_disk: {
+                final StringBuilder dump = new StringBuilder(mapping.size() * 256);
+                mapping.forEach((final String file, final String sha) -> {
+                    dump.append(String.format("%s:%s\n", file, sha));
+                });
+                try {
+                    Files.writeString(filesSnapshotFile, dump.toString(), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                } catch (final IOException ex) {
+                    System.out.println("ERROR gasai: Failed to write update result to disk: " + ex.toString());
+                }
+            }
+        }
+    }
+
+    private static void printHelp() {
+        System.out.printf("gasai v%s - personal security tool for my paranoia\n", VERSION);
+        System.out.println();
+        System.out.println("Usage:");
+        System.out.println("   gasai [--OPTION]");
+        System.out.println("Options:");
+        System.out.println("   check   : Check if any sha256 hashes have changed since last 'update' run.");
+        System.out.println("   update  : Updates all sha256 hashes in the specified directories.");
+        System.out.println("   version : Prints the version.");
+        System.out.println("   help    : Prints this message.");
+    }
+
+    private static void loadRc() {
+        Config.dirs = new String[] {System.getProperty("user.home")};
+        Config.delayMillis = 3;
+        Config.maxSizeKB = 8192;
+
+        if (Files.notExists(rcFile)) {
+            System.out.println("No ~/.gasairc file found. Using default settings...");
+            return;
+        }
+
+        try {
+            final String[] lines = Files.readString(rcFile).split("\n");
+            for (int i = 0; i < lines.length; ++i) {
+                final String[] cfg = lines[i].split("=");
+                if (cfg.length != 2) {
+                    System.out.println("Invalid configuration syntax.");
+                    System.exit(-5);
+                }
+                final String lhs = cfg[0];
+                final String rhs = cfg[1];
+
+                switch (lhs.toLowerCase()) {
+                    case "dirs": {
+                        final String[] dirs = rhs.split(";");
+                        Config.dirs = dirs;
+                    } break;
+
+                    case "delaymillis": {
+                        try {
+                            Config.delayMillis = Integer.parseInt(rhs);
+                        } catch (final NumberFormatException ex) {
+                            System.out.println("Invalid delaymillis entry. Not a number!");
+                            System.exit(-5);
+                        }
+                    } break;
+
+                    case "maxsizekb": {
+                        try {
+                            Config.maxSizeKB = Integer.parseInt(rhs);
+                        } catch (final NumberFormatException ex) {
+                            System.out.println("Invalid maxsizekb entry. Not a number!");
+                            System.exit(-5);
+                        }
+                    } break;
+
+                    default: {
+                        System.out.println("Unknown configuration key.");
+                        System.exit(-5);
+                    } break;
+                }
+            }
+        } catch (final IOException ex) {
+            System.out.println("ERROR gasai: Failed to load configuration file.");
+            System.exit(-6);
+        }
+    }
+
+    public static void main(final String[] args) {
+        check_os: {
+            // todo(nschultz): change that!
+            if (!System.getProperty("os.name").toLowerCase().equals("linux")) {
+                System.out.println("gasai is not supported on a non Linux operating system right now.");
+                System.exit(-10);
+            }
+        }
+
+        check_temrinal_size: {
+            if (System.getProperty("os.name").toLowerCase().equals("linux")) {
+                if (Integer.parseInt(execShellCommandWait("tput lines").strip()) < 25) {
+                    System.out.println("gasai requires a minimum of 25 terminal lines.");
+                    System.exit(-1);
+                }
+                if (Integer.parseInt(execShellCommandWait("tput cols").strip()) < 80) {
+                    System.out.println("gasai requires a minimum of 80 terminal cols.");
+                    System.exit(-1);
+                }
+            }
+        }
+
+        if (args.length == 0) {
+            System.out.println("No arguments provided.");
+            System.out.println("Try running gasai with '--help'.");
+            System.exit(-1);
+        }
+
+        if (args.length == 1) {
+            loadRc();
+
+            final String option = args[0];
+
+            switch (option) {
+                case "--check": {
+                    System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "Version " + VERSION);
+                    sleepMillis(2000);
+
+                    final Results results = check();
+                    System.out.println();
+                    System.out.println("gasai has scanned all directories.");
+                    System.out.println();
+                    System.out.println("Results:");
+                    System.out.println("Changed files: " + results.changed);
+                    System.out.println("Added   files: " + results.added);
+                    System.out.println("Missing files: " + results.missing);
+                } break;
+
+                case "--update": {
+                    System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "Version " + VERSION);
+                    update();
+                    System.out.println();
+                    System.out.println("gasai has updated all hashes.");
+                } break;
+
+                case "--help": {
+                    printHelp();
+                } break;
+
+                case "--version": {
+                    System.out.println(VERSION);
+                } break;
+
+                default: {
+                    System.out.printf("Unknown argument '%s'\n", option);
+                    System.out.println("Try running gasai with '--help'.");
+                    System.exit(-2);
+                } break;
+            }
+        } else {
+            System.out.println("Too many arguments.");
+            System.out.println("Try running gasai with '--help'.");
+            System.exit(-2);
+        }
+    }
+}
