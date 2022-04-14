@@ -36,7 +36,7 @@ public final class gasai {
     private static final String VT_GREEN_FG  = "\u001B[32m";
     private static final String VT_PURPLE_FG = "\u001B[35m";
     
-    private static final Path filesSnapshotFile = Path.of(System.getProperty("user.home"), ".gasai_files");
+    private static final Path filesSnapshotFile = Path.of(System.getProperty("user.home"), ".gasai_good_files");
     private static final Path rcFile       = Path.of(System.getProperty("user.home"), ".gasairc");
 
     private static final class Config {
@@ -189,9 +189,10 @@ public final class gasai {
 
         compare_old_snapshot_with_current_state: {
             oldSnapshot.forEach((final String file, final String sha) -> {
-                // todo(nschultz): Handle long files names
-                // final String cutFileName = file.length() > (80 - 58) ? file.substring(file.length() - 58) : file;
-                // System.out.println(cutFileName);
+                String displayFileName = file;
+                if (file.length() > 80) {
+                    displayFileName = "..." + file.substring(file.length() - 50);
+                }
 
                 currentFiles.remove(file);
 
@@ -204,9 +205,9 @@ public final class gasai {
                         for (final byte b : hash) currentHash.append(String.format("%02X", b));
 
                         if (currentHash.toString().equals(sha)) {
-                            System.out.printf("  %-59s [ %s ]\n", file, VT_GREEN_FG + "OK" + VT_RESET);
+                            System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "OK" + VT_RESET);
                         } else {
-                            System.out.printf("  %-59s [ %s ]\n", file, VT_RED_FG + "CHANGED" + VT_RESET);
+                            System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "CHANGED" + VT_RESET);
                             changed.increment();
                         }
                     } catch (final Exception ex) {
@@ -214,7 +215,7 @@ public final class gasai {
                         System.exit(-4);
                     }
                 } else {
-                    System.out.printf("  %-59s [ %s ]\n", file, VT_RED_FG + "MISSING" + VT_RESET);
+                    System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "MISSING" + VT_RESET);
                     missing.increment();
                 }
                 if (Config.delayMillis > 0) {
@@ -259,7 +260,12 @@ public final class gasai {
                         for (final byte b : hash) sbuffer.append(String.format("%02X", b));
                         mapping.put(file, sbuffer.toString());
 
-                        System.out.printf("  %-59s [ %s ]\n", file, VT_GREEN_FG + "FETCHED" + VT_RESET);
+                        String displayFileName = file;
+                        if (file.length() > 80) {
+                            displayFileName = "..." + file.substring(file.length() - 50);
+                        }
+
+                        System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "FETCHED" + VT_RESET);
 
                         if (Config.delayMillis > 0) {
                             sleepMillis(Config.delayMillis);
@@ -311,6 +317,8 @@ public final class gasai {
         try {
             final String[] lines = Files.readString(rcFile).split("\n");
             for (int i = 0; i < lines.length; ++i) {
+                if (lines[i].strip().startsWith("#")) continue; // skip comments
+
                 final String[] cfg = lines[i].split("=");
                 if (cfg.length != 2) {
                     System.out.println("Invalid configuration syntax.");
