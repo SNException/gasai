@@ -45,8 +45,8 @@ public final class gasai {
     private static final int ERR_RC   = -64;
     private static final int ERR_OS   = -128;
     
-    private static final Path filesSnapshotFile = Path.of(System.getProperty("user.home"), ".gasai_good_files");
-    private static final Path rcFile       = Path.of(System.getProperty("user.home"), ".gasairc");
+    private static final Path filesSnapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
+    private static final Path rcFile            = Path.of(System.getProperty("user.home"), ".gasairc");
 
     private static final class Config {
         private Config() { assert false; }
@@ -114,8 +114,7 @@ public final class gasai {
         final File[] list = directory.listFiles();
         if (list != null) {
             for (final File file : list) {
-                // Hack for Linux
-                if (file.getName().equals("X11")) continue;
+                if (file.getName().equals("X11"))              continue; // Hack for Linux
                 if ((file.length() / 1024) > Config.maxSizeKB) continue; // prevent possible OOM
 
                 if (file.isFile()) {
@@ -137,6 +136,8 @@ public final class gasai {
     }
 
     private static void sleepMillis(final long millis) {
+        assert millis > 0;
+
         try {
             Thread.sleep(millis, 0);
         } catch (final InterruptedException ex) {
@@ -156,7 +157,7 @@ public final class gasai {
 
     private static Results check() {
         System.out.println();
-        System.out.println(VT_BOLD + "Checking filesystem..." + VT_RESET);
+        System.out.println(VT_BOLD + "Checking hashes..." + VT_RESET);
 
         // have to use these wrappers due to stupid '...must be effectively final' bs.
         final LongAdder changed = new LongAdder();
@@ -254,6 +255,9 @@ public final class gasai {
     }
 
     private static int update() {
+        System.out.println();
+        System.out.println(VT_BOLD + "Updating hashes..." + VT_RESET);
+
         int fetched = 0;
         files: {
             final ArrayList<String> files = new ArrayList<>();
@@ -433,7 +437,7 @@ public final class gasai {
 
             switch (option) {
                 case "--check": {
-                    System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "Version " + VERSION);
+                    System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "version " + VERSION);
                     sleepMillis(2000);
                     loadRc();
 
@@ -456,7 +460,7 @@ public final class gasai {
                 } break;
 
                 case "--update": {
-                    System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "Version " + VERSION);
+                    System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "version " + VERSION);
                     sleepMillis(2000);
                     loadRc();
                     final int fetched = update();
