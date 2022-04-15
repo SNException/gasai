@@ -23,7 +23,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
 public final class gasai {
@@ -145,7 +145,7 @@ public final class gasai {
         final LongAdder added   = new LongAdder();
         final LongAdder missing = new LongAdder();
 
-        final HashMap<String, String> oldSnapshot = new HashMap<>();
+        final LinkedHashMap<String, String> oldSnapshot = new LinkedHashMap<>();
         retrieve_old_snapshot: {
             if (!Files.exists(filesSnapshotFile)) {
                 System.out.println("No snapshot file found!");
@@ -240,7 +240,7 @@ public final class gasai {
     private static void update() {
         files: {
             final ArrayList<String> files = new ArrayList<>();
-            final HashMap<String, String> mapping = new HashMap<>();
+            final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
 
             for (int i = 0; i < Config.dirs.length; ++i) {
                 final boolean success = listFiles(Config.dirs[i], null, files);
