@@ -35,6 +35,15 @@ public final class gasai {
     private static final String VT_RED_FG    = "\u001B[31m";
     private static final String VT_GREEN_FG  = "\u001B[32m";
     private static final String VT_PURPLE_FG = "\u001B[35m";
+
+    private static final int ERR_ARGS = -1;
+    private static final int ERR_TERM = -2;
+    private static final int ERR_SNAP = -4;
+    private static final int ERR_LIST = -8;
+    private static final int ERR_DIR  = -16;
+    private static final int ERR_SHA  = -32;
+    private static final int ERR_RC   = -64;
+    private static final int ERR_OS   = -128;
     
     private static final Path filesSnapshotFile = Path.of(System.getProperty("user.home"), ".gasai_good_files");
     private static final Path rcFile       = Path.of(System.getProperty("user.home"), ".gasairc");
@@ -43,7 +52,6 @@ public final class gasai {
         private Config() { assert false; }
 
         public static int delayMillis = 0;
-        // todo(nschultz): This works but it causes weird behaviour when we have files which are being modified, added and deleted with this size
         public static int maxSizeKB   = 0;
         public static String[] dirs   = null;
     }
@@ -136,6 +144,16 @@ public final class gasai {
         }
     }
 
+    private static String getFileNameToDisplay(final String file) {
+        assert file != null;
+
+        String displayFileName = file;
+        if (displayFileName.length() > 60) {
+            displayFileName = "..." + file.substring(file.length() - 56);
+        }
+        return displayFileName;
+    }
+
     private static Results check() {
         System.out.println();
         System.out.println(VT_BOLD + "Checking filesystem..." + VT_RESET);
@@ -150,7 +168,7 @@ public final class gasai {
             if (!Files.exists(filesSnapshotFile)) {
                 System.out.println("No snapshot file found!");
                 System.out.println("Did you run 'gasai --update' beforehand?");
-                System.exit(-3);
+                System.exit(ERR_SNAP);
             }
 
             try {
@@ -167,7 +185,7 @@ public final class gasai {
 
             } catch (final IOException ex) {
                 System.out.println("ERROR gasai: Failed to load snapshot file: " + ex.toString());
-                System.exit(-3);
+                System.exit(ERR_SNAP);
             }
         }
 
@@ -176,23 +194,20 @@ public final class gasai {
             for (int i = 0; i < Config.dirs.length; ++i) {
                 if (Files.notExists(Path.of(Config.dirs[i]))) {
                     System.out.printf("The directory '%s' does not exist. Perhaps you forgot to mount it?\n", Config.dirs[i]);
-                    System.exit(-20);
+                    System.exit(ERR_DIR);
                 }
 
                 final boolean success = listFiles(Config.dirs[i], null, currentFiles);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
-                    System.exit(-3);
+                    System.exit(ERR_LIST);
                 }
             }
         }
 
         compare_old_snapshot_with_current_state: {
             oldSnapshot.forEach((final String file, final String sha) -> {
-                String displayFileName = file;
-                if (file.length() > 80) {
-                    displayFileName = "..." + file.substring(file.length() - 50);
-                }
+                final String displayFileName = getFileNameToDisplay(file);
 
                 currentFiles.remove(file);
 
@@ -212,7 +227,7 @@ public final class gasai {
                         }
                     } catch (final Exception ex) {
                         System.out.println("ERROR gasai: Failed to compare old snapshot: " + ex.toString());
-                        System.exit(-4);
+                        System.exit(ERR_SNAP);
                     }
                 } else {
                     System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "MISSING" + VT_RESET);
@@ -225,7 +240,8 @@ public final class gasai {
 
             // every file left in this list must be a newly added one, and hence we report it
             for (int i = 0; i < currentFiles.size(); ++i) {
-                System.out.printf("  %-59s [ %s ]\n", currentFiles.get(i), VT_RED_FG + "ADDED" + VT_RESET);
+                final String displayFileName = getFileNameToDisplay(currentFiles.get(i));
+                System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "ADDED" + VT_RESET);
                 added.increment();
 
                 if (Config.delayMillis > 0) {
@@ -247,7 +263,7 @@ public final class gasai {
                 final boolean success = listFiles(Config.dirs[i], null, files);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
-                    System.exit(-3);
+                    System.exit(ERR_LIST);
                 }
             }
 
@@ -261,10 +277,7 @@ public final class gasai {
                         for (final byte b : hash) sbuffer.append(String.format("%02X", b));
                         mapping.put(file, sbuffer.toString());
 
-                        String displayFileName = file;
-                        if (file.length() > 80) {
-                            displayFileName = "..." + file.substring(file.length() - 50);
-                        }
+                        final String displayFileName = getFileNameToDisplay(file);
 
                         System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "FETCHED" + VT_RESET);
                         fetched += 1;
@@ -275,7 +288,7 @@ public final class gasai {
 
                     } catch (final Exception ex) {
                         System.out.printf("ERROR gasai: Failed to retrieve sha hash from '%s'\n", file);
-                        System.exit(-4);
+                        System.exit(ERR_SHA);
                     }
                 }
             }
@@ -289,6 +302,7 @@ public final class gasai {
                     Files.writeString(filesSnapshotFile, dump.toString(), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
                 } catch (final IOException ex) {
                     System.out.println("ERROR gasai: Failed to write update result to disk: " + ex.toString());
+                    System.exit(ERR_SNAP);
                 }
             }
         }
@@ -329,7 +343,7 @@ public final class gasai {
                 final String[] cfg = lines[i].split("=");
                 if (cfg.length != 2) {
                     System.out.println("Invalid configuration syntax.");
-                    System.exit(-5);
+                    System.exit(ERR_RC);
                 }
                 final String lhs = cfg[0];
                 final String rhs = cfg[1];
@@ -345,7 +359,7 @@ public final class gasai {
                             Config.delayMillis = Integer.parseInt(rhs);
                         } catch (final NumberFormatException ex) {
                             System.out.println("Invalid delaymillis entry. Not a number!");
-                            System.exit(-5);
+                            System.exit(ERR_RC);
                         }
                     } break;
 
@@ -354,19 +368,19 @@ public final class gasai {
                             Config.maxSizeKB = Integer.parseInt(rhs);
                         } catch (final NumberFormatException ex) {
                             System.out.println("Invalid maxsizekb entry. Not a number!");
-                            System.exit(-5);
+                            System.exit(ERR_RC);
                         }
                     } break;
 
                     default: {
                         System.out.println("Unknown configuration key.");
-                        System.exit(-5);
+                        System.exit(ERR_RC);
                     } break;
                 }
             }
         } catch (final IOException ex) {
             System.out.println("ERROR gasai: Failed to load configuration file.");
-            System.exit(-6);
+            System.exit(ERR_RC);
         }
     }
 
@@ -375,7 +389,7 @@ public final class gasai {
             // todo(nschultz): change that!
             if (!System.getProperty("os.name").toLowerCase().equals("linux")) {
                 System.out.println("gasai is not supported on a non Linux operating system right now.");
-                System.exit(-10);
+                System.exit(ERR_OS);
             }
         }
 
@@ -383,11 +397,11 @@ public final class gasai {
             if (System.getProperty("os.name").toLowerCase().equals("linux")) {
                 if (Integer.parseInt(execShellCommandWait("tput lines").strip()) < 25) {
                     System.out.println("gasai requires a minimum of 25 terminal lines.");
-                    System.exit(-1);
+                    System.exit(ERR_TERM);
                 }
                 if (Integer.parseInt(execShellCommandWait("tput cols").strip()) < 80) {
                     System.out.println("gasai requires a minimum of 80 terminal cols.");
-                    System.exit(-1);
+                    System.exit(ERR_TERM);
                 }
             }
         }
@@ -395,7 +409,7 @@ public final class gasai {
         if (args.length == 0) {
             System.out.println("No arguments provided.");
             System.out.println("Try running gasai with '--help'.");
-            System.exit(-1);
+            System.exit(ERR_ARGS);
         }
 
         if (args.length == 1) {
@@ -444,13 +458,13 @@ public final class gasai {
                 default: {
                     System.out.printf("Unknown argument '%s'\n", option);
                     System.out.println("Try running gasai with '--help'.");
-                    System.exit(-2);
+                    System.exit(ERR_ARGS);
                 } break;
             }
         } else {
             System.out.println("Too many arguments.");
             System.out.println("Try running gasai with '--help'.");
-            System.exit(-2);
+            System.exit(ERR_ARGS);
         }
     }
 }
