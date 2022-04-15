@@ -2,6 +2,8 @@
 
 gasai - personal "security" tool for my paranoia :)
 
+![example.png](example.png)
+
 ## How to run
 
 Right now this script only runs on Linux.
