@@ -237,7 +237,8 @@ public final class gasai {
         return new Results(changed.intValue(), added.intValue(), missing.intValue());
     }
 
-    private static void update() {
+    private static int update() {
+        int fetched = 0;
         files: {
             final ArrayList<String> files = new ArrayList<>();
             final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
@@ -266,6 +267,7 @@ public final class gasai {
                         }
 
                         System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "FETCHED" + VT_RESET);
+                        fetched += 1;
 
                         if (Config.delayMillis > 0) {
                             sleepMillis(Config.delayMillis);
@@ -290,6 +292,7 @@ public final class gasai {
                 }
             }
         }
+        return fetched;
     }
 
     private static void printHelp() {
@@ -302,6 +305,10 @@ public final class gasai {
         System.out.println("   update  : Updates all sha256 hashes in the specified directories.");
         System.out.println("   version : Prints the version.");
         System.out.println("   help    : Prints this message.");
+        System.out.println();
+        System.out.println("Developed by Niklas Schultz");
+        System.out.println("Copyright (c) 2022 Niklas Schultz");
+        System.out.println("Licensed under MIT. See LICENSE file for more details.");
     }
 
     private static void loadRc() {
@@ -401,21 +408,29 @@ public final class gasai {
                     System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "Version " + VERSION);
                     sleepMillis(2000);
 
+                    final double startTime = (double) System.nanoTime();
+
                     final Results results = check();
+
                     System.out.println();
                     System.out.println("gasai has scanned all directories.");
                     System.out.println();
                     System.out.println("Results:");
-                    System.out.println("Changed files: " + results.changed);
-                    System.out.println("Added   files: " + results.added);
-                    System.out.println("Missing files: " + results.missing);
+                    System.out.println("  Changed files: " + results.changed);
+                    System.out.println("  Added   files: " + results.added);
+                    System.out.println("  Missing files: " + results.missing);
+
+                    final double endTime   = (double) System.nanoTime();
+                    final double elapsedTime = (double) (endTime - startTime) / 1000000000.0d;
+                    System.out.println();
+                    System.out.printf("Total elapsed time %.1f seconds\n", elapsedTime);
                 } break;
 
                 case "--update": {
                     System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "Version " + VERSION);
-                    update();
+                    final int fetched = update();
                     System.out.println();
-                    System.out.println("gasai has updated all hashes.");
+                    System.out.printf("gasai has updated '%s' hashes.\n", fetched);
                 } break;
 
                 case "--help": {
