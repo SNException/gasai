@@ -312,14 +312,30 @@ public final class gasai {
     private static void printHelp() {
         System.out.printf("gasai v%s - personal security tool for my paranoia\n", VERSION);
         System.out.println();
-        System.out.println("Usage:");
+        System.out.println("Summary");
+        System.out.println("=======");
+        System.out.println("This command line tool is rather simple, it checks files inside directories for");
+        System.out.println("any changes. That includes new files being added, old ones being deleted and");
+        System.out.println("any content changes.");
+        System.out.println();
+        System.out.println("Configuration file");
+        System.out.println("==================");
+        System.out.println("gasai uses one config file located in your home directory called .gasairc.");
+        System.out.println("   dirs=dir1;dir2;           # the directories you wish to check");
+        System.out.println("   delaymillis=milliseconds; # wait that many ms after each file check");
+        System.out.println("   maxsizekb=size_in_kb;     # do not check files that are larger than that");
+        System.out.println();
+        System.out.println("Usage");
+        System.out.println("=====");
         System.out.println("   gasai [--OPTION]");
         System.out.println("Options:");
-        System.out.println("   check   : Check if any sha256 hashes have changed since last 'update' run.");
-        System.out.println("   update  : Updates all sha256 hashes in the specified directories.");
+        System.out.println("   check   : Check if any hashes have changed since last update run.");
+        System.out.println("   update  : Updates all hashes for the specified directories.");
         System.out.println("   version : Prints the version.");
         System.out.println("   help    : Prints this message.");
         System.out.println();
+        System.out.println("About");
+        System.out.println("=====");
         System.out.println("Developed by Niklas Schultz");
         System.out.println("Copyright (c) 2022 Niklas Schultz");
         System.out.println("Licensed under MIT. See LICENSE file for more details.");
@@ -413,14 +429,13 @@ public final class gasai {
         }
 
         if (args.length == 1) {
-            loadRc();
-
             final String option = args[0];
 
             switch (option) {
                 case "--check": {
                     System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "Version " + VERSION);
                     sleepMillis(2000);
+                    loadRc();
 
                     final double startTime = (double) System.nanoTime();
 
@@ -442,6 +457,8 @@ public final class gasai {
 
                 case "--update": {
                     System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "Version " + VERSION);
+                    sleepMillis(2000);
+                    loadRc();
                     final int fetched = update();
                     System.out.println();
                     System.out.printf("gasai has updated '%s' hashes.\n", fetched);
