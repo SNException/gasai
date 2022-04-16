@@ -180,6 +180,7 @@ public final class gasai {
                 for (int i = 0; i < snapshotLines.length; ++i) {
                     final String line = snapshotLines[i];
 
+                    if (line.split(":").length != 2) continue; // happens when directory is empty
                     final String file = line.split(":")[0];
                     final String hash = line.split(":")[1];
 
@@ -197,6 +198,10 @@ public final class gasai {
             for (int i = 0; i < Config.dirs.length; ++i) {
                 if (Files.notExists(Path.of(Config.dirs[i]))) {
                     System.out.printf("The directory '%s' does not exist. Perhaps you forgot to mount it?\n", Config.dirs[i]);
+                    System.exit(ERR_DIR);
+                }
+                if (!Files.isDirectory(Path.of(Config.dirs[i]))) {
+                    System.out.printf("'%s' is not a directory.\n", Config.dirs[i]);
                     System.exit(ERR_DIR);
                 }
 
@@ -262,12 +267,21 @@ public final class gasai {
         System.out.println();
         System.out.println(VT_BOLD + "Updating hashes..." + VT_RESET);
 
-        int fetched = 0;
+        final LongAdder fetched = new LongAdder();
         files: {
             final ArrayList<String> files = new ArrayList<>();
             final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
 
             for (int i = 0; i < Config.dirs.length; ++i) {
+                if (Files.notExists(Path.of(Config.dirs[i]))) {
+                    System.out.printf("The directory '%s' does not exist. Perhaps you forgot to mount it?\n", Config.dirs[i]);
+                    System.exit(ERR_DIR);
+                }
+                if (!Files.isDirectory(Path.of(Config.dirs[i]))) {
+                    System.out.printf("'%s' is not a directory.\n", Config.dirs[i]);
+                    System.exit(ERR_DIR);
+                }
+
                 final boolean success = listFiles(Config.dirs[i], null, files);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
@@ -289,7 +303,7 @@ public final class gasai {
 
                         if (Config.verbose) System.out.printf("%s\n", sbuffer.toString());
                         System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "FETCHED" + VT_RESET);
-                        fetched += 1;
+                        fetched.increment();
 
                         if (Config.delayMillis > 0) {
                             sleepMillis(Config.delayMillis);
@@ -315,7 +329,7 @@ public final class gasai {
                 }
             }
         }
-        return fetched;
+        return fetched.intValue();
     }
 
     private static void printHelp() {
