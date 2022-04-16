@@ -417,31 +417,31 @@ public final class gasai {
     }
 
     private static void init() {
-        System.out.println("Recreating configuration...");
+        System.out.println("Creating configuration...");
         try {
             if (Files.exists(rcFile)) {
                 Files.delete(rcFile);
-
-                // default values
-                Config.dirs        = new String[] {System.getProperty("user.home")};
-                Config.delayMillis = 3;
-                Config.maxSizeKB   = 8192;
-                Config.verbose     = false;
-
-                final StringBuilder buffer = new StringBuilder();
-                buffer.append("dirs=").append(System.getProperty("user.home")).append("\n");
-                buffer.append("delaymillis=").append(String.valueOf(Config.delayMillis)).append("\n");
-                buffer.append("maxSizekb=").append(String.valueOf(Config.maxSizeKB)).append("\n");
-                buffer.append("verbose=").append(String.valueOf(Config.verbose)).append("\n");
-
-                Files.writeString(rcFile, buffer.toString());
             }
+
+            // default values
+            Config.dirs        = new String[] {System.getProperty("user.home")};
+            Config.delayMillis = 3;
+            Config.maxSizeKB   = 8192;
+            Config.verbose     = false;
+
+            final StringBuilder buffer = new StringBuilder();
+            buffer.append("dirs=").append(System.getProperty("user.home")).append("\n");
+            buffer.append("delaymillis=").append(String.valueOf(Config.delayMillis)).append("\n");
+            buffer.append("maxSizekb=").append(String.valueOf(Config.maxSizeKB)).append("\n");
+            buffer.append("verbose=").append(String.valueOf(Config.verbose)).append("\n");
+
+            Files.writeString(rcFile, buffer.toString());
 
             if (Files.exists(snapshotFile)) {
                 Files.delete(snapshotFile);
             }
 
-            System.out.println("Configuration has been recreated.");
+            System.out.println("Configuration has been created.");
         } catch (final IOException ex) {
             System.out.println("Failed to init: " + ex.toString());
             System.exit(ERR_INIT);
