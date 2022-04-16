@@ -381,6 +381,7 @@ public final class gasai {
             final String[] lines = Files.readString(rcFile).split("\n");
             for (int i = 0; i < lines.length; ++i) {
                 if (lines[i].strip().startsWith("#")) continue; // skip comments
+                if (lines[i].strip().isEmpty())       continue; // skip empty lines
 
                 final String[] cfg = lines[i].split("=");
                 if (cfg.length != 2) {
@@ -444,9 +445,23 @@ public final class gasai {
             Config.verbose     = false;
 
             final StringBuilder buffer = new StringBuilder();
+            buffer.append("# ").append("\n");
+            buffer.append("# ").append("\n");
+            buffer.append("# ").append("\n");
+            buffer.append("# Configuration file ").append("\n");
+            buffer.append("# gasai ").append(VERSION).append("\n");
+            buffer.append("# ").append("\n");
+            buffer.append("# ").append("\n");
+            buffer.append("# ").append("\n");
+            buffer.append("\n\n\n");
+
+            buffer.append("# the directories you wish to check separated by a semicolon").append("\n");
             buffer.append("dirs=").append(System.getProperty("user.home")).append("\n");
+            buffer.append("# wait time in milliseconds before each file check").append("\n");
             buffer.append("delaymillis=").append(String.valueOf(Config.delayMillis)).append("\n");
+            buffer.append("# do not check files which are bigger than this size").append("\n");
             buffer.append("maxSizekb=").append(String.valueOf(Config.maxSizeKB)).append("\n");
+            buffer.append("# true or false depending on whether you wish to print verbose information").append("\n");
             buffer.append("verbose=").append(String.valueOf(Config.verbose)).append("\n");
 
             Files.writeString(rcFile, buffer.toString());
@@ -521,9 +536,15 @@ public final class gasai {
                     System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "version " + VERSION);
                     sleepMillis(2000);
                     loadRc();
+
+                    final double startTime = (double) System.nanoTime();
                     final int fetched = update();
                     System.out.println();
                     System.out.printf("gasai has updated '%s' hashes.\n", fetched);
+
+                    final double endTime   = (double) System.nanoTime();
+                    final double elapsedTime = (double) (endTime - startTime) / 1000000000.0d;
+                    System.out.printf("Total elapsed time %.1f seconds\n", elapsedTime);
                 } break;
 
                 case "--init": {
