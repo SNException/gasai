@@ -26,6 +26,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
+// todo(nschultz): write results to log file, because we don't have
+// an infinite amount of scroll back buffer available in the terminal
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -46,6 +48,10 @@ public final class gasai {
     private static final int ERR_OS   = -128;
     private static final int ERR_INIT = -256;
     
+    // todo(nschultz): This location should be configurable by using the rc file.
+    // rc file should probably be located in the same directory as the gasai script
+    // itself. That way you can have this run on separate hard drives (profiles
+    // basically).
     private static final Path snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
     private static final Path rcFile       = Path.of(System.getProperty("user.home"), ".gasairc");
 
@@ -519,14 +525,18 @@ public final class gasai {
                     final Results results = check();
 
                     System.out.println();
-                    System.out.println("gasai has scanned all directories.");
+                    if (Config.dirs.length == 1) {
+                        System.out.printf("gasai has scanned %s directory.\n", Config.dirs.length);
+                    } else {
+                        System.out.printf("gasai has scanned %s directories.\n", Config.dirs.length);
+                    }
                     System.out.println();
                     System.out.println("Results:");
                     System.out.println("  Changed files: " + results.changed);
                     System.out.println("  Added   files: " + results.added);
                     System.out.println("  Missing files: " + results.missing);
 
-                    final double endTime   = (double) System.nanoTime();
+                    final double endTime = (double) System.nanoTime();
                     final double elapsedTime = (double) (endTime - startTime) / 1000000000.0d;
                     System.out.println();
                     System.out.printf("Total elapsed time %.1f seconds\n", elapsedTime);
@@ -540,7 +550,11 @@ public final class gasai {
                     final double startTime = (double) System.nanoTime();
                     final int fetched = update();
                     System.out.println();
-                    System.out.printf("gasai has updated '%s' hashes.\n", fetched);
+                    if (fetched == 1) {
+                        System.out.printf("gasai has updated '%s' hash.\n", fetched);
+                    } else {
+                        System.out.printf("gasai has updated '%s' hashes.\n", fetched);
+                    }
 
                     final double endTime   = (double) System.nanoTime();
                     final double elapsedTime = (double) (endTime - startTime) / 1000000000.0d;
