@@ -27,6 +27,9 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
+// todo(nschultz): make the hash algorithm configurable
+// Also give user the option to use the sha256sum tool on unix instead
+// of the java build in.
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -42,7 +45,7 @@ public final class gasai {
     private static final int ERR_SNAP = -4;
     private static final int ERR_LIST = -8;
     private static final int ERR_DIR  = -16;
-    private static final int ERR_SHA  = -32;
+    private static final int ERR_HASH = -32;
     private static final int ERR_RC   = -64;
     private static final int ERR_OS   = -128;
     private static final int ERR_INIT = -256;
@@ -163,6 +166,24 @@ public final class gasai {
         return displayFileName;
     }
 
+    private static String getHash(final String file) {
+        try {
+            final byte[] data = Files.readAllBytes(Path.of(file));
+            final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            final byte[] hash = digest.digest(data);
+            final StringBuilder sHash = new StringBuilder(hash.length);
+            for (final byte b : hash) sHash.append(String.format("%02X", b));
+
+            return sHash.toString();
+        } catch (final Exception ex) {
+            System.out.println("ERROR gasai: Failed to retrieve hash value: " + ex.toString());
+            System.exit(ERR_HASH);
+        }
+
+        assert false : "Should have exit JVM instead of reaching this code path.";
+        return null; // will not happen since in case of an error we exit the JVM
+    }
+
     private static Results check() {
         System.out.println();
         System.out.println(VT_BOLD + "Checking hashes..." + VT_RESET);
@@ -229,26 +250,17 @@ public final class gasai {
                 currentFiles.remove(file);
 
                 if (Files.exists(Path.of(file))) {
-                    try {
-                        final byte[] data = Files.readAllBytes(Path.of(file));
-                        final MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                        final byte[] hash = digest.digest(data);
-                        final StringBuilder currentHash = new StringBuilder(hash.length);
-                        for (final byte b : hash) currentHash.append(String.format("%02X", b));
+                    final String currentHash = getHash(file);
 
-                        if (currentHash.toString().equals(sha)) { // good
-                            if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
-                            System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "OK" + VT_RESET);
-                            log.append(String.format("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "OK" + VT_RESET));
-                        } else { // bad
-                            if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
-                            System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "CHANGED" + VT_RESET);
-                            log.append(String.format("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "CHANGED" + VT_RESET));
-                            changed.increment();
-                        }
-                    } catch (final Exception ex) {
-                        System.out.println("ERROR gasai: Failed to compare old snapshot: " + ex.toString());
-                        System.exit(ERR_SNAP);
+                    if (currentHash.toString().equals(sha)) {
+                        if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
+                        System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "OK" + VT_RESET);
+                        log.append(String.format("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "OK" + VT_RESET));
+                    } else {
+                        if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
+                        System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "CHANGED" + VT_RESET);
+                        log.append(String.format("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "CHANGED" + VT_RESET));
+                        changed.increment();
                     }
                 } else {
                     System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "MISSING" + VT_RESET);
@@ -312,27 +324,17 @@ public final class gasai {
 
             get_sha_hashes: {
                 for (final String file : files) {
-                    try {
-                        final byte[] data = Files.readAllBytes(Path.of(file));
-                        final MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                        final byte[] hash = digest.digest(data);
-                        final StringBuilder sbuffer = new StringBuilder(hash.length);
-                        for (final byte b : hash) sbuffer.append(String.format("%02X", b));
-                        mapping.put(file, sbuffer.toString());
+                    final String currentHash = getHash(file);
+                    mapping.put(file, currentHash);
 
-                        final String displayFileName = getFileNameToDisplay(file);
+                    final String displayFileName = getFileNameToDisplay(file);
 
-                        if (Config.verbose) System.out.printf("%s\n", sbuffer.toString());
-                        System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "FETCHED" + VT_RESET);
-                        fetched.increment();
+                    if (Config.verbose) System.out.printf("%s\n", currentHash);
+                    System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "FETCHED" + VT_RESET);
+                    fetched.increment();
 
-                        if (Config.delayMillis > 0) {
-                            sleepMillis(Config.delayMillis);
-                        }
-
-                    } catch (final Exception ex) {
-                        System.out.printf("ERROR gasai: Failed to retrieve sha hash from '%s'\n", file);
-                        System.exit(ERR_SHA);
+                    if (Config.delayMillis > 0) {
+                        sleepMillis(Config.delayMillis);
                     }
                 }
             }
