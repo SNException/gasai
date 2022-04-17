@@ -196,7 +196,7 @@ public final class gasai {
         assert file != null;
 
         String displayFileName = file;
-        if (displayFileName.length() > 60) {
+        if (displayFileName.length() > 56) {
             displayFileName = "..." + file.substring(file.length() - 56);
         }
         return displayFileName;
@@ -591,6 +591,11 @@ public final class gasai {
                     case "snapshotfile": {
                         try {
                             Config.snapshotFile = Path.of(rhs);
+                            if (Files.isDirectory(Config.snapshotFile)) {
+                                System.out.println("Error while loading configuration:");
+                                System.out.println("Bad snapshot file path; must not be directory.");
+                                System.exit(ERR_RC);
+                            }
                         } catch (final Exception ex) {
                             System.out.println("Error while loading configuration:");
                             System.out.println("Bad snapshot file path.");
@@ -601,6 +606,11 @@ public final class gasai {
                     case "logfile": {
                         try {
                             Config.logFile = Path.of(rhs);
+                            if (Files.isDirectory(Config.snapshotFile)) {
+                                System.out.println("Error while loading configuration:");
+                                System.out.println("Bad logfile path; must not be directory.");
+                                System.exit(ERR_RC);
+                            }
                         } catch (final Exception ex) {
                             System.out.println("Error while loading configuration:");
                             System.out.println("Bad logfile path.");
