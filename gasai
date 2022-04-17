@@ -22,14 +22,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
+import java.security.Security;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.Set;
 import java.util.concurrent.atomic.LongAdder;
 
-// todo(nschultz): make the hash algorithm configurable
-// Also give user the option to use the sha256sum tool on unix instead
-// of the java build in.
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -52,8 +51,7 @@ public final class gasai {
     
     // todo(nschultz): This location should be configurable by using the rc file.
     // rc file should probably be located in the same directory as the gasai script
-    // itself. That way you can have this run on separate hard drives (profiles
-    // basically).
+    // itself. That way you can have this run on separate hard drives (profiles basically).
     private static final Path snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
     private static final Path rcFile       = Path.of(System.getProperty("user.home"), ".gasairc");
     private static final Path logFile      = Path.of(System.getProperty("user.home"), ".gasai.log");
@@ -61,18 +59,19 @@ public final class gasai {
     private static final class Config {
         private Config() { assert false; }
 
-        public static String[] dirs   = new String[] {System.getProperty("user.home")};
-        public static int delayMillis = 3;
-        public static int maxSizeKB   = 8192;
+        public static String[] dirs   = null;
+        public static int delayMillis = 0;
+        public static int maxSizeKB   = 0;
         public static boolean verbose = false;
+        public static String hash     = null;
     }
 
-    private static final class Results {
+    private static final class CheckResults {
         public final int changed;
         public final int added;
         public final int missing;
 
-        public Results(final int changed, final int added, final int missing) {
+        public CheckResults(final int changed, final int added, final int missing) {
             this.changed = changed;
             this.added   = added;
             this.missing = missing;
@@ -166,10 +165,13 @@ public final class gasai {
         return displayFileName;
     }
 
-    private static String getHash(final String file) {
+    private static String getHash(final String file, final String algorithm) {
+        assert file      != null;
+        assert algorithm != null;
+
         try {
             final byte[] data = Files.readAllBytes(Path.of(file));
-            final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            final MessageDigest digest = MessageDigest.getInstance(algorithm);
             final byte[] hash = digest.digest(data);
             final StringBuilder sHash = new StringBuilder(hash.length);
             for (final byte b : hash) sHash.append(String.format("%02X", b));
@@ -184,9 +186,9 @@ public final class gasai {
         return null; // will not happen since in case of an error we exit the JVM
     }
 
-    private static Results check() {
+    private static CheckResults check() {
         System.out.println();
-        System.out.println(VT_BOLD + "Checking hashes..." + VT_RESET);
+        System.out.printf(VT_BOLD + "Checking hashes (%s)..." + VT_RESET + "\n", Config.hash);
 
         final StringBuilder log = new StringBuilder(8192);
         log.append(" [ " + new Date() + " ] ").append("\n\n\n");
@@ -226,15 +228,6 @@ public final class gasai {
         final ArrayList<String> currentFiles = new ArrayList<>();
         retrieve_current_files: {
             for (int i = 0; i < Config.dirs.length; ++i) {
-                if (Files.notExists(Path.of(Config.dirs[i]))) {
-                    System.out.printf("The directory '%s' does not exist. Perhaps you forgot to mount it?\n", Config.dirs[i]);
-                    System.exit(ERR_DIR);
-                }
-                if (!Files.isDirectory(Path.of(Config.dirs[i]))) {
-                    System.out.printf("'%s' is not a directory.\n", Config.dirs[i]);
-                    System.exit(ERR_DIR);
-                }
-
                 final boolean success = listFiles(Config.dirs[i], null, currentFiles);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
@@ -250,7 +243,7 @@ public final class gasai {
                 currentFiles.remove(file);
 
                 if (Files.exists(Path.of(file))) {
-                    final String currentHash = getHash(file);
+                    final String currentHash = getHash(file, Config.hash);
 
                     if (currentHash.toString().equals(sha)) {
                         if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
@@ -293,12 +286,12 @@ public final class gasai {
             }
         }
 
-        return new Results(changed.intValue(), added.intValue(), missing.intValue());
+        return new CheckResults(changed.intValue(), added.intValue(), missing.intValue());
     }
 
     private static int update() {
         System.out.println();
-        System.out.println(VT_BOLD + "Updating hashes..." + VT_RESET);
+        System.out.printf(VT_BOLD + "Updating hashes (%s)..." + VT_RESET + "\n", Config.hash);
 
         final LongAdder fetched = new LongAdder();
         files: {
@@ -306,15 +299,6 @@ public final class gasai {
             final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
 
             for (int i = 0; i < Config.dirs.length; ++i) {
-                if (Files.notExists(Path.of(Config.dirs[i]))) {
-                    System.out.printf("The directory '%s' does not exist. Perhaps you forgot to mount it?\n", Config.dirs[i]);
-                    System.exit(ERR_DIR);
-                }
-                if (!Files.isDirectory(Path.of(Config.dirs[i]))) {
-                    System.out.printf("'%s' is not a directory.\n", Config.dirs[i]);
-                    System.exit(ERR_DIR);
-                }
-
                 final boolean success = listFiles(Config.dirs[i], null, files);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
@@ -324,7 +308,7 @@ public final class gasai {
 
             get_sha_hashes: {
                 for (final String file : files) {
-                    final String currentHash = getHash(file);
+                    final String currentHash = getHash(file, Config.hash);
                     mapping.put(file, currentHash);
 
                     final String displayFileName = getFileNameToDisplay(file);
@@ -371,6 +355,7 @@ public final class gasai {
         System.out.println("   delaymillis=milliseconds; # wait that many ms after each file check");
         System.out.println("   maxsizekb=size_in_kb;     # do not check files that are larger than that");
         System.out.println("   verbose=false/true;       # print additional information while running");
+        System.out.println("   hash=algorithm;           # the hash algorithm to use");
         System.out.println();
         System.out.println("Usage");
         System.out.println("=====");
@@ -379,6 +364,7 @@ public final class gasai {
         System.out.println("   check   : Check if any hashes have changed since last update run.");
         System.out.println("   update  : Updates all hashes for the specified directories.");
         System.out.println("   init    : Deletes the rc file and recreates it with default values.");
+        System.out.println("   hashes  : Prints all supported hash algorithms on this platform.");
         System.out.println("   version : Prints the version.");
         System.out.println("   help    : Prints this message.");
         System.out.println();
@@ -390,14 +376,10 @@ public final class gasai {
     }
 
     private static void loadRc() {
-        Config.dirs        = new String[] {System.getProperty("user.home")};
-        Config.delayMillis = 3;
-        Config.maxSizeKB   = 8192;
-        Config.verbose     = false;
-
         if (Files.notExists(rcFile)) {
-            System.out.println("No ~/.gasairc file found. Using default settings...");
-            return; // early out
+            System.out.println("No ~/.gasairc file found.");
+            System.out.println("You can use 'gasai --init' to create a default configuration.");
+            System.exit(ERR_RC);
         }
 
         try {
@@ -418,6 +400,17 @@ public final class gasai {
                     case "dirs": {
                         final String[] dirs = rhs.split(";");
                         Config.dirs = dirs;
+
+                        for (int j = 0; j < Config.dirs.length; ++j) {
+                            if (Files.notExists(Path.of(Config.dirs[j]))) {
+                                System.out.printf("The directory '%s' does not exist. Perhaps you forgot to mount it?\n", Config.dirs[j]);
+                                System.exit(ERR_DIR);
+                            }
+                            if (!Files.isDirectory(Path.of(Config.dirs[j]))) {
+                                System.out.printf("'%s' is not a directory.\n", Config.dirs[j]);
+                                System.exit(ERR_DIR);
+                            }
+                        }
                     } break;
 
                     case "delaymillis": {
@@ -442,6 +435,22 @@ public final class gasai {
                         Config.verbose = Boolean.parseBoolean(rhs);
                     } break;
 
+                    case "hash": {
+                        Config.hash = rhs;
+                        final Set<String> algorithms = Security.getAlgorithms("MessageDigest");
+                        // linear search
+                        boolean supported = false;
+                        for (final String algorithm : algorithms) {
+                            if (algorithm.equals(Config.hash)) {
+                                supported = true;
+                            }
+                        }
+                        if (!supported) {
+                            System.out.printf("Unsupported or unknown hash algorithm '%s'\n", Config.hash);
+                            System.exit(ERR_RC);
+                        }
+                    } break;
+
                     default: {
                         System.out.println("Unknown configuration key.");
                         System.out.println("Try running 'gasai --init' to create a default configuration.");
@@ -456,7 +465,7 @@ public final class gasai {
     }
 
     private static void init() {
-        System.out.println("Creating configuration...");
+        System.out.println("Creating new configuration...");
         try {
             if (Files.exists(rcFile)) {
                 Files.delete(rcFile);
@@ -467,6 +476,7 @@ public final class gasai {
             Config.delayMillis = 3;
             Config.maxSizeKB   = 8192;
             Config.verbose     = false;
+            Config.hash        = "SHA-256";
 
             final StringBuilder buffer = new StringBuilder();
             buffer.append("# ").append("\n");
@@ -487,6 +497,8 @@ public final class gasai {
             buffer.append("maxSizekb=").append(String.valueOf(Config.maxSizeKB)).append("\n");
             buffer.append("# true or false depending on whether you wish to print verbose information").append("\n");
             buffer.append("verbose=").append(String.valueOf(Config.verbose)).append("\n");
+            buffer.append("# the hash algorithm").append("\n");
+            buffer.append("hash=").append(String.valueOf(Config.hash)).append("\n");
 
             Files.writeString(rcFile, buffer.toString());
 
@@ -494,7 +506,11 @@ public final class gasai {
                 Files.delete(snapshotFile);
             }
 
-            System.out.println("Configuration has been created.");
+            if (Files.exists(logFile)) {
+                Files.delete(logFile);
+            }
+
+            System.out.println("New configuration has been created.");
         } catch (final IOException ex) {
             System.out.println("Failed to init: " + ex.toString());
             System.exit(ERR_INIT);
@@ -541,7 +557,7 @@ public final class gasai {
 
                     final double startTime = (double) System.nanoTime();
 
-                    final Results results = check();
+                    final CheckResults results = check();
 
                     System.out.println();
                     if (Config.dirs.length == 1) {
@@ -582,6 +598,14 @@ public final class gasai {
 
                 case "--init": {
                     init();
+                } break;
+
+                case "--hashes": {
+                    System.out.println("The following hash algorithms are supported on this platform:");
+                    final Set<String> algorithms = Security.getAlgorithms("MessageDigest");
+                    for (final String algorithm : algorithms) {
+                        System.out.println("  " + algorithm);
+                    }
                 } break;
 
                 case "--help": {
