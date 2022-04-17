@@ -55,6 +55,8 @@ import java.util.concurrent.atomic.LongAdder;
 //
 // todo(nschultz): What happens when we set a maxsize limit to, say 3 megabytes, and the file gets changed afterwards to a size
 // bigger than this limit? Well, it will get marked with skipped but is that really what we want in this case?
+//
+// todo(nschultz): getTimeStamp() could crash if getLastModifiedTime() return -1
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -472,6 +474,8 @@ public final class gasai {
         System.out.println("   update  : Updates all hashes for the specified directories.");
         System.out.println("   init    : Deletes the rc file and recreates it with default values.");
         System.out.println("   hashes  : Prints all supported hash algorithms on this platform.");
+        System.out.println("   rc      : Loads the configuration and prints the current settings.");
+        System.out.println("   snap    : Prints the last update time.");
         System.out.println("   version : Prints the version.");
         System.out.println("   help    : Prints this message.");
         System.out.println();
@@ -738,6 +742,23 @@ public final class gasai {
                     for (final String algorithm : algorithms) {
                         System.out.println("  " + algorithm);
                     }
+                } break;
+
+                case "--rc": {
+                    loadRc();
+
+                    System.out.println(rcFile.toString());
+                    for (int i = 0; i < Config.dirs.length; ++i) System.out.printf("  Dir%s        : %s\n", i + 1, Config.dirs[i]);
+                    System.out.printf("  delaymillis : %s\n", Config.delayMillis);
+                    System.out.printf("  maxsizekb   : %s\n", Config.maxSizeKB);
+                    System.out.printf("  verbose     : %s\n", Config.verbose);
+                    System.out.printf("  hash        : %s\n", Config.hash);
+                    System.out.printf("  readsize    : %s\n", Config.readSize);
+                } break;
+
+                case "--snap": {
+                    final String lastUpdateTime = getTimeStamp(getLastModifiedTime(rcFile));
+                    System.out.println(lastUpdateTime);
                 } break;
 
                 case "--help": {
