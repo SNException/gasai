@@ -590,12 +590,7 @@ public final class gasai {
 
                     case "snapshotfile": {
                         try {
-                            if (!Files.isDirectory(Path.of(rhs))) {
-                                System.out.println("Error while loading configuration:");
-                                System.out.println("Bad snapshotfile path; must be directory.");
-                                System.exit(ERR_RC);
-                            }
-                            Config.snapshotFile = Path.of(rhs, ".gasai_hashes");
+                            Config.snapshotFile = Path.of(rhs);
                         } catch (final Exception ex) {
                             System.out.println("Error while loading configuration:");
                             System.out.println("Bad snapshot file path.");
@@ -605,12 +600,7 @@ public final class gasai {
 
                     case "logfile": {
                         try {
-                            if (!Files.isDirectory(Path.of(rhs))) {
-                                System.out.println("Error while loading configuration:");
-                                System.out.println("Bad logfile path; must be directory.");
-                                System.exit(ERR_RC);
-                            }
-                            Config.logFile = Path.of(rhs, ".gasai.log");
+                            Config.logFile = Path.of(rhs);
                         } catch (final Exception ex) {
                             System.out.println("Error while loading configuration:");
                             System.out.println("Bad logfile path.");
@@ -646,8 +636,8 @@ public final class gasai {
             Config.verbose      = false;
             Config.hash         = "SHA-256";
             Config.readSize     = 0;
-            Config.snapshotFile = Path.of(System.getProperty("user.home"));
-            Config.logFile      = Path.of(System.getProperty("user.home"));
+            Config.snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
+            Config.logFile      = Path.of(System.getProperty("user.home"), ".gasai.log");
 
             final StringBuilder buffer = new StringBuilder();
             buffer.append("# ").append("\n");
