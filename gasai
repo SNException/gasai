@@ -23,11 +23,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
-// todo(nschultz): write results to log file, because we don't have
-// an infinite amount of scroll back buffer available in the terminal
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -54,6 +53,7 @@ public final class gasai {
     // basically).
     private static final Path snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
     private static final Path rcFile       = Path.of(System.getProperty("user.home"), ".gasairc");
+    private static final Path logFile      = Path.of(System.getProperty("user.home"), ".gasai.log");
 
     private static final class Config {
         private Config() { assert false; }
@@ -167,6 +167,9 @@ public final class gasai {
         System.out.println();
         System.out.println(VT_BOLD + "Checking hashes..." + VT_RESET);
 
+        final StringBuilder log = new StringBuilder(8192);
+        log.append(" [ " + new Date() + " ] ").append("\n\n\n");
+
         // have to use these wrappers due to stupid '...must be effectively final' bs.
         final LongAdder changed = new LongAdder();
         final LongAdder added   = new LongAdder();
@@ -236,9 +239,11 @@ public final class gasai {
                         if (currentHash.toString().equals(sha)) { // good
                             if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
                             System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "OK" + VT_RESET);
+                            log.append(String.format("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "OK" + VT_RESET));
                         } else { // bad
                             if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
                             System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "CHANGED" + VT_RESET);
+                            log.append(String.format("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "CHANGED" + VT_RESET));
                             changed.increment();
                         }
                     } catch (final Exception ex) {
@@ -247,6 +252,7 @@ public final class gasai {
                     }
                 } else {
                     System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "MISSING" + VT_RESET);
+                    log.append(String.format("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "MISSING" + VT_RESET));
                     missing.increment();
                 }
                 if (Config.delayMillis > 0) {
@@ -258,11 +264,20 @@ public final class gasai {
             for (int i = 0; i < currentFiles.size(); ++i) {
                 final String displayFileName = getFileNameToDisplay(currentFiles.get(i));
                 System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "ADDED" + VT_RESET);
+                log.append(String.format("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "ADDED" + VT_RESET));
                 added.increment();
 
                 if (Config.delayMillis > 0) {
                     sleepMillis(Config.delayMillis);
                 }
+            }
+        }
+
+        write_to_log: {
+            try {
+                Files.writeString(logFile, log.toString(), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            } catch (final IOException ex) {
+                System.out.println("Failed to write to log: " + ex.toString());
             }
         }
 
@@ -345,7 +360,7 @@ public final class gasai {
         System.out.println("=======");
         System.out.println("This command line tool is rather simple, it checks files inside directories for");
         System.out.println("any changes. That includes new files being added, old ones being deleted and");
-        System.out.println("any content changes.");
+        System.out.println("any content differences.");
         System.out.println();
         System.out.println("Configuration file");
         System.out.println("==================");
@@ -427,6 +442,7 @@ public final class gasai {
 
                     default: {
                         System.out.println("Unknown configuration key.");
+                        System.out.println("Try running 'gasai --init' to create a default configuration.");
                         System.exit(ERR_RC);
                     } break;
                 }
@@ -485,7 +501,8 @@ public final class gasai {
 
     public static void main(final String[] args) {
         check_os: {
-            // todo(nschultz): change that!
+            // todo(nschultz): change that! Actually I don't think we need this. This script should run just fine
+            // on Windows...but we have not tested that so...
             if (!System.getProperty("os.name").toLowerCase().equals("linux")) {
                 System.out.println("gasai is not supported on a non Linux operating system right now.");
                 System.exit(ERR_OS);
