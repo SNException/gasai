@@ -257,7 +257,6 @@ public final class gasai {
     }
 
     private static CheckResults check() {
-        System.out.println();
         System.out.printf(VT_BOLD + "Checking hashes (%s)..." + VT_RESET + "\n", Config.hash);
 
         if (!Files.exists(Config.snapshotFile)) {
@@ -384,7 +383,6 @@ public final class gasai {
     }
 
     private static UpdateResults update() {
-        System.out.println();
         System.out.printf(VT_BOLD + "Updating hashes (%s)..." + VT_RESET + "\n", Config.hash);
 
         final LongAdder fetched                     = new LongAdder();
@@ -732,6 +730,7 @@ public final class gasai {
                     final double startTime = (double) System.nanoTime();
 
                     final CheckResults results = check();
+                    System.out.println();
 
                     if (Config.dirs.length == 1) {
                         System.out.printf("gasai has scanned %s directory.\n", Config.dirs.length);
@@ -753,6 +752,7 @@ public final class gasai {
                 } break;
 
                 case "--update": {
+                    printHeader();
                     loadRc();
 
                     final double startTime = (double) System.nanoTime();
