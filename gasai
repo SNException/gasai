@@ -24,6 +24,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.Security;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -31,6 +32,29 @@ import java.util.LinkedHashMap;
 import java.util.Set;
 import java.util.concurrent.atomic.LongAdder;
 
+// todo(nschultz): Sort files alphabetically before processing
+// java.util.Collections.sort(list)
+//
+// todo(nschultz): Location of gasai files should be configurable by using the rc file.
+// rc file should probably be located in the same directory as the gasai script
+// itself. That way you can have this run on separate hard drives (profiles basically).
+//
+// todo(nschultz): Make this script usable on windows
+//
+// todo(nschultz): .gasai.log on Linux should probably be located insite /var/log ?
+//
+// todo(nschultz): .gasairc on Linux should probably be located insite /etc/gasai ?
+//
+// todo(nschultz): Right now the last modified time of the .gasai_hashes file is used to tell the user
+// agains which snapshot he is running the check. However that is error prone since the file could be changed
+// (e.g by touch command). It would be better (?) if the timestamp is written as one of the first lines of the
+// .gasai_hashes file.
+//
+// todo(nschultz): Since we set our own limit of tput cols to 80 we have to do some adjustments for ADDED, SKIPPED, MISSING
+// since we used OK as our "template".
+//
+// todo(nschultz): What happens when we set a maxsize limit to, say 3 megabytes, and the file gets changed afterwards to a size
+// bigger than this limit? Well, it will get marked with skipped but is that really what we want in this case?
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -42,7 +66,7 @@ public final class gasai {
     private static final String VT_YELLOW_FG = "\u001B[33m";
     private static final String VT_PURPLE_FG = "\u001B[35m";
 
-    private static final int ERR_SUCCESS = 0;
+    private static final int ERR_SUCCESS =  0;
     private static final int ERR_ARGS    = -1;
     private static final int ERR_TERM    = -2;
     private static final int ERR_SNAP    = -4;
@@ -52,9 +76,6 @@ public final class gasai {
     private static final int ERR_OS      = -64;
     private static final int ERR_INIT    = -128;
     
-    // todo(nschultz): This location should be configurable by using the rc file.
-    // rc file should probably be located in the same directory as the gasai script
-    // itself. That way you can have this run on separate hard drives (profiles basically).
     private static final Path snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
     private static final Path rcFile       = Path.of(System.getProperty("user.home"), ".gasairc");
     private static final Path logFile      = Path.of(System.getProperty("user.home"), ".gasai.log");
@@ -223,8 +244,22 @@ public final class gasai {
             }
         }
 
-        assert false : "Should have exit JVM instead of reaching this code path.";
+        assert false : "Unreachable code path.";
         return null; // will not happen since in case of an error we exit the JVM
+    }
+
+    private static long getLastModifiedTime(final Path path) {
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (final IOException ex) {
+            return -1;
+        }
+    }
+
+    private static String getTimeStamp(final long millis) {
+        final SimpleDateFormat formatter = new SimpleDateFormat("dd.MM.yyyy hh:mm:ss");
+        final String date = formatter.format(new Date(millis));
+        return date;
     }
 
     private static CheckResults check() {
@@ -232,15 +267,16 @@ public final class gasai {
         System.out.printf(VT_BOLD + "Checking hashes (%s)..." + VT_RESET + "\n", Config.hash);
 
         final StringBuilder log = new StringBuilder(8192);
-
-        // log header
-        log.append(String.format(" [ DATE      : %s ]", new Date())).append("\n");
-        log.append(String.format(" [ DIRS      : %s ]", Arrays.toString(Config.dirs))).append("\n");
-        log.append(String.format(" [ MAXSIZEKB : %s ]", Config.maxSizeKB)).append("\n");
-        log.append(String.format(" [ DELAY     : %s ]", Config.delayMillis)).append("\n");
-        log.append(String.format(" [ HASH      : %s ]", Config.hash)).append("\n");
-        log.append(String.format(" [ READSIZE  : %s ]", Config.readSize)).append("\n");
-        log.append("\n\n\n");
+        log_header: {
+            log.append(String.format("TIME      : %s", getTimeStamp(System.currentTimeMillis()))).append("\n");
+            log.append(String.format("SNAP      : %s", getTimeStamp(getLastModifiedTime(snapshotFile)))).append("\n");
+            log.append(String.format("DIRS      : %s", Arrays.toString(Config.dirs))).append("\n");
+            log.append(String.format("MAXSIZEKB : %s", Config.maxSizeKB)).append("\n");
+            log.append(String.format("DELAY     : %s", Config.delayMillis)).append("\n");
+            log.append(String.format("HASH      : %s", Config.hash)).append("\n");
+            log.append(String.format("READSIZE  : %s", Config.readSize)).append("\n");
+            log.append("\n\n\n");
+        }
 
         // have to use these wrappers due to stupid '...must be effectively final' bs.
         final LongAdder processed = new LongAdder();
@@ -615,8 +651,6 @@ public final class gasai {
 
     public static void main(final String[] args) {
         check_os: {
-            // todo(nschultz): change that! Actually I don't think we need this. This script should run just fine
-            // on Windows...but we have not tested that so...
             if (!System.getProperty("os.name").toLowerCase().equals("linux")) {
                 System.out.println("gasai is not supported on a non Linux operating system right now.");
                 System.exit(ERR_OS);
