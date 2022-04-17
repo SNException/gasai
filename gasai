@@ -38,6 +38,7 @@ public final class gasai {
     private static final String VT_BOLD      = "\u001B[1m";
     private static final String VT_RED_FG    = "\u001B[31m";
     private static final String VT_GREEN_FG  = "\u001B[32m";
+    private static final String VT_YELLOW_FG = "\u001B[33m";
     private static final String VT_PURPLE_FG = "\u001B[35m";
 
     private static final int ERR_SUCCESS = 0;
@@ -69,16 +70,28 @@ public final class gasai {
     }
 
     private static final class CheckResults {
-        public final int total;
+        public final int processed;
         public final int changed;
         public final int added;
         public final int missing;
+        public final int skips;
 
-        public CheckResults(final int total, final int changed, final int added, final int missing) {
-            this.total   = total;
-            this.changed = changed;
-            this.added   = added;
-            this.missing = missing;
+        public CheckResults(final int processed, final int changed, final int added, final int missing, final int skips) {
+            this.processed = processed;
+            this.changed   = changed;
+            this.added     = added;
+            this.missing   = missing;
+            this.skips     = skips;
+        }
+    }
+
+    private static final class UpdateResults {
+        public final int processed;
+        public final int skips;
+
+        public UpdateResults(final int processed, final int skips) {
+            this.processed = processed;
+            this.skips     = skips;
         }
     }
 
@@ -119,7 +132,8 @@ public final class gasai {
         }
     }
 
-    private static boolean listFiles(final String start, final String filter, final ArrayList<String> files) {
+    private static boolean listFiles(final String start, final String filter,
+                                     final ArrayList<String> files, final ArrayList<String> skips) {
         assert start  != null;
         assert filter != null;
         assert files  != null;
@@ -128,8 +142,13 @@ public final class gasai {
         final File[] list = directory.listFiles();
         if (list != null) {
             for (final File file : list) {
-                if (file.getName().equals("X11"))              continue; // Hack for Linux
-                if ((file.length() / 1024) > Config.maxSizeKB) continue; // prevent possible OOM
+                if (file.getName().equals("X11")) {
+                    continue; // Hack for Linux
+                }
+                if ((file.length() / 1024) > Config.maxSizeKB) {
+                    skips.add(file.getAbsolutePath());
+                    continue; // prevent possible OOM
+                }
 
                 if (file.isFile()) {
                     if (filter != null) {
@@ -140,7 +159,7 @@ public final class gasai {
                         files.add(file.getAbsolutePath());
                     }
                 } else if (file.isDirectory()) {
-                    listFiles(file.getAbsolutePath(), filter, files);
+                    listFiles(file.getAbsolutePath(), filter, files, skips);
                 }
             }
             return true;
@@ -173,10 +192,10 @@ public final class gasai {
         assert file      != null;
         assert algorithm != null;
 
-        if (Config.readSize > 0) {
+        if (Config.readSize > 0) { // only read that amount
             try (final FileInputStream in = new FileInputStream(file)) {
                 final byte[] buf = new byte[Config.readSize];
-                final int readBytes = in.read(buf); // does NOT block on empty files since EOF is availble
+                final int readBytes = in.read(buf); // does NOT block on empty files since EOF is available
 
                 final MessageDigest digest = MessageDigest.getInstance(algorithm);
                 final byte[] hash = digest.digest(buf);
@@ -216,10 +235,10 @@ public final class gasai {
         log.append(String.format(" [ Using %s ]\n", Config.hash));
 
         // have to use these wrappers due to stupid '...must be effectively final' bs.
-        final LongAdder total   = new LongAdder();
-        final LongAdder changed = new LongAdder();
-        final LongAdder added   = new LongAdder();
-        final LongAdder missing = new LongAdder();
+        final LongAdder processed = new LongAdder();
+        final LongAdder changed   = new LongAdder();
+        final LongAdder added     = new LongAdder();
+        final LongAdder missing   = new LongAdder();
 
         final LinkedHashMap<String, String> oldSnapshot = new LinkedHashMap<>();
         retrieve_old_snapshot: {
@@ -249,16 +268,24 @@ public final class gasai {
         }
 
         final ArrayList<String> currentFiles = new ArrayList<>();
+        final ArrayList<String> skippedFiles = new ArrayList<>();
         retrieve_current_files: {
             for (int i = 0; i < Config.dirs.length; ++i) {
-                final boolean success = listFiles(Config.dirs[i], null, currentFiles);
+                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                     System.exit(ERR_LIST);
                 }
             }
         }
-        total.add(currentFiles.size());
+        processed.add(currentFiles.size());
+
+        // print all the skipped files first
+        for (int i = 0; i < skippedFiles.size(); ++i) {
+            final String displayFileName = getFileNameToDisplay(skippedFiles.get(i));
+            System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_YELLOW_FG + "SKIP" + VT_RESET);
+            log.append(String.format("  %-59s [ %s ]\n", displayFileName, VT_YELLOW_FG + "SKIP" + VT_RESET));
+        }
 
         compare_old_snapshot_with_current_state: {
             oldSnapshot.forEach((final String file, final String sha) -> {
@@ -310,57 +337,68 @@ public final class gasai {
             }
         }
 
-        return new CheckResults(total.intValue(), changed.intValue(), added.intValue(), missing.intValue());
+        return new CheckResults(processed.intValue(),
+                                changed.intValue(),
+                                added.intValue(),
+                                missing.intValue(),
+                                skippedFiles.size()
+        );
     }
 
-    private static int update() {
+    private static UpdateResults update() {
         System.out.println();
         System.out.printf(VT_BOLD + "Updating hashes (%s)..." + VT_RESET + "\n", Config.hash);
 
-        final LongAdder fetched = new LongAdder();
-        files: {
-            final ArrayList<String> files = new ArrayList<>();
-            final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
+        final LongAdder fetched                     = new LongAdder();
+        final ArrayList<String> files               = new ArrayList<>();
+        final ArrayList<String> skippedFiles        = new ArrayList<>();
+        final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
 
-            for (int i = 0; i < Config.dirs.length; ++i) {
-                final boolean success = listFiles(Config.dirs[i], null, files);
-                if (!success) {
-                    System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
-                    System.exit(ERR_LIST);
-                }
+        for (int i = 0; i < Config.dirs.length; ++i) {
+            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles);
+            if (!success) {
+                System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
+                System.exit(ERR_LIST);
             }
+        }
 
-            get_sha_hashes: {
-                for (final String file : files) {
-                    final String currentHash = getHash(file, Config.hash);
-                    mapping.put(file, currentHash);
-
-                    final String displayFileName = getFileNameToDisplay(file);
-
-                    if (Config.verbose) System.out.printf("%s\n", currentHash);
-                    System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "FETCHED" + VT_RESET);
-                    fetched.increment();
-
-                    if (Config.delayMillis > 0) {
-                        sleepMillis(Config.delayMillis);
-                    }
-                }
+        skipped_files: {
+            for (int i = 0; i < skippedFiles.size(); ++i) {
+                final String displayFileName = getFileNameToDisplay(skippedFiles.get(i));
+                System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_YELLOW_FG + "SKIP" + VT_RESET);
             }
+        }
 
-            write_to_disk: {
-                final StringBuilder dump = new StringBuilder(mapping.size() * 256);
-                mapping.forEach((final String file, final String sha) -> {
-                    dump.append(String.format("%s:%s\n", file, sha));
-                });
-                try {
-                    Files.writeString(snapshotFile, dump.toString(), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-                } catch (final IOException ex) {
-                    System.out.println("ERROR gasai: Failed to write update result to disk: " + ex.toString());
-                    System.exit(ERR_SNAP);
+        get_sha_hashes: {
+            for (final String file : files) {
+                final String currentHash = getHash(file, Config.hash);
+                mapping.put(file, currentHash);
+
+                final String displayFileName = getFileNameToDisplay(file);
+
+                if (Config.verbose) System.out.printf("%s\n", currentHash);
+                System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "FETCHED" + VT_RESET);
+                fetched.increment();
+
+                if (Config.delayMillis > 0) {
+                    sleepMillis(Config.delayMillis);
                 }
             }
         }
-        return fetched.intValue();
+
+        write_to_disk: {
+            final StringBuilder dump = new StringBuilder(mapping.size() * 256);
+            mapping.forEach((final String file, final String sha) -> {
+                dump.append(String.format("%s:%s\n", file, sha));
+            });
+            try {
+                Files.writeString(snapshotFile, dump.toString(), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            } catch (final IOException ex) {
+                System.out.println("ERROR gasai: Failed to write update result to disk: " + ex.toString());
+                System.exit(ERR_SNAP);
+            }
+        }
+        return new UpdateResults(fetched.intValue(), skippedFiles.size());
     }
 
     private static void printHelp() {
@@ -617,10 +655,11 @@ public final class gasai {
                     }
                     System.out.println();
                     System.out.println("Results:");
-                    System.out.println("  Total   files: " + results.total);
-                    System.out.println("  Changed files: " + results.changed);
-                    System.out.println("  Added   files: " + results.added);
-                    System.out.println("  Missing files: " + results.missing);
+                    System.out.println("  Processed files: " + results.processed);
+                    System.out.println("  Skipped   files: " + results.skips);
+                    System.out.println("  Changed   files: " + results.changed);
+                    System.out.println("  Added     files: " + results.added);
+                    System.out.println("  Missing   files: " + results.missing);
 
                     final double endTime = (double) System.nanoTime();
                     final double elapsedTime = (double) (endTime - startTime) / 1000000000.0d;
@@ -634,15 +673,15 @@ public final class gasai {
                     loadRc();
 
                     final double startTime = (double) System.nanoTime();
-                    final int fetched = update();
+                    final UpdateResults result = update();
                     System.out.println();
-                    if (fetched == 1) {
-                        System.out.printf("gasai has updated '%s' hash.\n", fetched);
+                    if (result.processed == 1) {
+                        System.out.printf("gasai has updated '%s' hash.\n", result.processed);
                     } else {
-                        System.out.printf("gasai has updated '%s' hashes.\n", fetched);
+                        System.out.printf("gasai has updated '%s' hashes.\n", result.processed);
                     }
 
-                    final double endTime   = (double) System.nanoTime();
+                    final double endTime = (double) System.nanoTime();
                     final double elapsedTime = (double) (endTime - startTime) / 1000000000.0d;
                     System.out.printf("Total elapsed time %.1f seconds\n", elapsedTime);
                 } break;
