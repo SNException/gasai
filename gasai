@@ -688,6 +688,7 @@ public final class gasai {
 
     private static void printHeader() {
         System.out.printf(VT_BOLD + VT_PURPLE_FG + "[ gasai %s ]\n" + VT_RESET, "version " + VERSION);
+        System.out.println();
         sleepMillis(1500);
     }
 
@@ -730,7 +731,6 @@ public final class gasai {
 
                     final CheckResults results = check();
 
-                    System.out.println();
                     if (Config.dirs.length == 1) {
                         System.out.printf("gasai has scanned %s directory.\n", Config.dirs.length);
                     } else {
@@ -751,7 +751,6 @@ public final class gasai {
                 } break;
 
                 case "--update": {
-                    printHeader();
                     loadRc();
 
                     final double startTime = (double) System.nanoTime();
@@ -811,7 +810,8 @@ public final class gasai {
                         System.exit(ERR_SNAP);
                     }
                     final String lastUpdateTime = getTimeStamp(millis);
-                    System.out.println(lastUpdateTime);
+                    System.out.println(Config.snapshotFile.toString());
+                    System.out.println("  " + lastUpdateTime);
                 } break;
 
                 case "--help": {
