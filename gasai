@@ -39,15 +39,15 @@ public final class gasai {
     private static final String VT_GREEN_FG  = "\u001B[32m";
     private static final String VT_PURPLE_FG = "\u001B[35m";
 
-    private static final int ERR_ARGS = -1;
-    private static final int ERR_TERM = -2;
-    private static final int ERR_SNAP = -4;
-    private static final int ERR_LIST = -8;
-    private static final int ERR_DIR  = -16;
-    private static final int ERR_HASH = -32;
-    private static final int ERR_RC   = -64;
-    private static final int ERR_OS   = -128;
-    private static final int ERR_INIT = -256;
+    private static final int ERR_SUCCESS = 0;
+    private static final int ERR_ARGS    = -1;
+    private static final int ERR_TERM    = -2;
+    private static final int ERR_SNAP    = -4;
+    private static final int ERR_LIST    = -8;
+    private static final int ERR_HASH    = -16;
+    private static final int ERR_RC      = -32;
+    private static final int ERR_OS      = -64;
+    private static final int ERR_INIT    = -128;
     
     // todo(nschultz): This location should be configurable by using the rc file.
     // rc file should probably be located in the same directory as the gasai script
@@ -192,6 +192,7 @@ public final class gasai {
 
         final StringBuilder log = new StringBuilder(8192);
         log.append(" [ " + new Date() + " ] ").append("\n\n\n");
+        log.append(String.format(" [ Using %s ]\n", Config.hash));
 
         // have to use these wrappers due to stupid '...must be effectively final' bs.
         final LongAdder changed = new LongAdder();
@@ -368,6 +369,18 @@ public final class gasai {
         System.out.println("   version : Prints the version.");
         System.out.println("   help    : Prints this message.");
         System.out.println();
+        System.out.println("Error codes");
+        System.out.println("===========");
+        System.out.println("   ERR_SUCCESS 0");
+        System.out.println("   ERR_ARGS   -1");
+        System.out.println("   ERR_TERM   -2");
+        System.out.println("   ERR_SNAP   -4");
+        System.out.println("   ERR_LIST   -8");
+        System.out.println("   ERR_HASH   -16");
+        System.out.println("   ERR_RC     -32");
+        System.out.println("   ERR_OS     -64");
+        System.out.println("   ERR_INIT   -128");
+        System.out.println();
         System.out.println("About");
         System.out.println("=====");
         System.out.println("Developed by Niklas Schultz");
@@ -404,11 +417,11 @@ public final class gasai {
                         for (int j = 0; j < Config.dirs.length; ++j) {
                             if (Files.notExists(Path.of(Config.dirs[j]))) {
                                 System.out.printf("The directory '%s' does not exist. Perhaps you forgot to mount it?\n", Config.dirs[j]);
-                                System.exit(ERR_DIR);
+                                System.exit(ERR_RC);
                             }
                             if (!Files.isDirectory(Path.of(Config.dirs[j]))) {
                                 System.out.printf("'%s' is not a directory.\n", Config.dirs[j]);
-                                System.exit(ERR_DIR);
+                                System.exit(ERR_RC);
                             }
                         }
                     } break;
@@ -627,5 +640,7 @@ public final class gasai {
             System.out.println("Try running gasai with '--help'.");
             System.exit(ERR_ARGS);
         }
+
+        System.exit(ERR_SUCCESS);
     }
 }
