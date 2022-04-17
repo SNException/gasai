@@ -268,6 +268,12 @@ public final class gasai {
         System.out.println();
         System.out.printf(VT_BOLD + "Checking hashes (%s)..." + VT_RESET + "\n", Config.hash);
 
+        if (!Files.exists(snapshotFile)) {
+            System.out.println("No snapshot file found!");
+            System.out.println("Did you run 'gasai --update' beforehand?");
+            System.exit(ERR_SNAP);
+        }
+
         final StringBuilder log = new StringBuilder(8192);
         log_header: {
             log.append(String.format("TIME      : %s", getTimeStamp(System.currentTimeMillis()))).append("\n");
@@ -288,12 +294,6 @@ public final class gasai {
 
         final LinkedHashMap<String, String> oldSnapshot = new LinkedHashMap<>();
         retrieve_old_snapshot: {
-            if (!Files.exists(snapshotFile)) {
-                System.out.println("No snapshot file found!");
-                System.out.println("Did you run 'gasai --update' beforehand?");
-                System.exit(ERR_SNAP);
-            }
-
             try {
                 final String[] snapshotLines = Files.readString(snapshotFile).split("\n");
 
@@ -490,6 +490,12 @@ public final class gasai {
         System.out.println("   ERR_RC     -32");
         System.out.println("   ERR_OS     -64");
         System.out.println("   ERR_INIT   -128");
+        System.out.println();
+        System.out.println("Files");
+        System.out.println("=====");
+        System.out.println("~/.gasairc");
+        System.out.println("~/.gasai_hashes");
+        System.out.println("~/.gasai.log");
         System.out.println();
         System.out.println("About");
         System.out.println("=====");
@@ -757,7 +763,13 @@ public final class gasai {
                 } break;
 
                 case "--snap": {
-                    final String lastUpdateTime = getTimeStamp(getLastModifiedTime(rcFile));
+                    final long millis = getLastModifiedTime(snapshotFile);
+                    if (millis < 0) {
+                        System.out.println("Failed to retrieve last update time.");
+                        System.out.println("Perhaps you have no snapshot file yet?");
+                        System.exit(ERR_SNAP);
+                    }
+                    final String lastUpdateTime = getTimeStamp(millis);
                     System.out.println(lastUpdateTime);
                 } break;
 
