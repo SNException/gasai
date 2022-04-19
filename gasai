@@ -516,6 +516,15 @@ public final class gasai {
             System.exit(ERR_RC);
         }
 
+        String dirsTemp         = null;
+        String delayMillisTemp  = null;
+        String maxSizeKBTemp    = null;
+        String verboseTemp      = null;
+        String hashTemp         = null;
+        String readSizeTemp     = null;
+        String snapshotFileTemp = null;
+        String logFileTemp      = null;
+
         try {
             final String[] lines = Files.readString(rcFile).split("\n");
             for (int i = 0; i < lines.length; ++i) {
@@ -531,105 +540,14 @@ public final class gasai {
                 final String rhs = cfg[1];
 
                 switch (lhs.toLowerCase()) {
-                    case "dirs": {
-                        final String[] dirs = rhs.split(";");
-                        Config.dirs = dirs;
-
-                        for (int j = 0; j < Config.dirs.length; ++j) {
-                            if (Files.notExists(Path.of(Config.dirs[j]))) {
-                                System.out.println("Error while loading configuration:");
-                                System.out.printf("The directory '%s' does not exist. Perhaps you forgot to mount it?\n", Config.dirs[j]);
-                                System.exit(ERR_RC);
-                            }
-                            if (!Files.isDirectory(Path.of(Config.dirs[j]))) {
-                                System.out.println("Error while loading configuration:");
-                                System.out.printf("'%s' is not a directory.\n", Config.dirs[j]);
-                                System.exit(ERR_RC);
-                            }
-                        }
-                    } break;
-
-                    case "delaymillis": {
-                        try {
-                            Config.delayMillis = Integer.parseInt(rhs);
-                        } catch (final NumberFormatException ex) {
-                            System.out.println("Error while loading configuration:");
-                            System.out.println("Invalid delaymillis entry. Not a number!");
-                            System.exit(ERR_RC);
-                        }
-                    } break;
-
-                    case "maxsizekb": {
-                        try {
-                            Config.maxSizeKB = Integer.parseInt(rhs);
-                        } catch (final NumberFormatException ex) {
-                            System.out.println("Error while loading configuration:");
-                            System.out.println("Invalid maxsizekb entry. Not a number!");
-                            System.exit(ERR_RC);
-                        }
-                    } break;
-
-                    case "verbose": {
-                        Config.verbose = Boolean.parseBoolean(rhs);
-                    } break;
-
-                    case "hash": {
-                        Config.hash = rhs;
-                        final Set<String> algorithms = Security.getAlgorithms("MessageDigest");
-                        // linear search
-                        boolean supported = false;
-                        for (final String algorithm : algorithms) {
-                            if (algorithm.equals(Config.hash)) {
-                                supported = true;
-                            }
-                        }
-                        if (!supported) {
-                            System.out.println("Error while loading configuration:");
-                            System.out.printf("Unsupported or unknown hash algorithm '%s'\n", Config.hash);
-                            System.exit(ERR_RC);
-                        }
-                    } break;
-
-                    case "readsize": {
-                        try {
-                            Config.readSize = Integer.parseInt(rhs);
-                        } catch (final NumberFormatException ex) {
-                            System.out.println("Error while loading configuration:");
-                            System.out.println("Invalid readSize entry. Not a number!");
-                            System.exit(ERR_RC);
-                        }
-
-                    } break;
-
-                    case "snapshotfile": {
-                        try {
-                            Config.snapshotFile = Path.of(rhs);
-                            if (Files.isDirectory(Config.snapshotFile)) {
-                                System.out.println("Error while loading configuration:");
-                                System.out.println("Bad snapshot file path; must not be directory.");
-                                System.exit(ERR_RC);
-                            }
-                        } catch (final Exception ex) {
-                            System.out.println("Error while loading configuration:");
-                            System.out.println("Bad snapshot file path.");
-                            System.exit(ERR_RC);
-                        }
-                    } break;
-
-                    case "logfile": {
-                        try {
-                            Config.logFile = Path.of(rhs);
-                            if (Files.isDirectory(Config.snapshotFile)) {
-                                System.out.println("Error while loading configuration:");
-                                System.out.println("Bad logfile path; must not be directory.");
-                                System.exit(ERR_RC);
-                            }
-                        } catch (final Exception ex) {
-                            System.out.println("Error while loading configuration:");
-                            System.out.println("Bad logfile path.");
-                            System.exit(ERR_RC);
-                        }
-                    } break;
+                    case "dirs"         : { dirsTemp         = rhs; } break;
+                    case "delaymillis"  : { delayMillisTemp  = rhs; } break;
+                    case "maxsizekb"    : { maxSizeKBTemp    = rhs; } break;
+                    case "verbose"      : { verboseTemp      = rhs; } break;
+                    case "hash"         : { hashTemp         = rhs; } break;
+                    case "readsize"     : { readSizeTemp     = rhs; } break;
+                    case "snapshotfile" : { snapshotFileTemp = rhs; } break;
+                    case "logfile"      : { logFileTemp      = rhs; } break;
 
                     default: {
                         System.out.println("Error while loading configuration:");
@@ -640,8 +558,118 @@ public final class gasai {
                 }
             }
         } catch (final IOException ex) {
-            System.out.println("ERROR gasai: Failed to load configuration file.");
+            System.out.println("ERROR gasai: Failed to read configuration file.");
             System.exit(ERR_RC);
+        }
+
+        check_configuration: {
+            dirs: {
+                Config.dirs = dirsTemp.split(";");
+                for (int j = 0; j < Config.dirs.length; ++j) {
+                    if (Files.notExists(Path.of(Config.dirs[j]))) {
+                        System.out.println("Error while loading configuration:");
+                        System.out.printf("The directory '%s' does not exist. Perhaps you forgot to mount it?\n", Config.dirs[j]);
+                        System.exit(ERR_RC);
+                    }
+                    if (!Files.isDirectory(Path.of(Config.dirs[j]))) {
+                        System.out.println("Error while loading configuration:");
+                        System.out.printf("'%s' is not a directory.\n", Config.dirs[j]);
+                        System.exit(ERR_RC);
+                    }
+                }
+            }
+
+            delayMillis: {
+                try {
+                    Config.delayMillis = Integer.parseInt(delayMillisTemp);
+                    if (Config.delayMillis < 0) {
+                        System.out.println("Error while loading configuration:");
+                        System.out.println("delaymillis must not be negative.");
+                        System.exit(ERR_RC);
+                    }
+                } catch (final NumberFormatException ex) {
+                    System.out.println("Error while loading configuration:");
+                    System.out.println("Invalid delaymillis entry. Not a number.");
+                    System.exit(ERR_RC);
+                }
+            }
+
+            maxSizeKB: {
+                try {
+                    Config.maxSizeKB = Integer.parseInt(maxSizeKBTemp);
+                    if (Config.maxSizeKB < 0) {
+                        System.out.println("Error while loading configuration:");
+                        System.out.println("maxsizekb must not be negative.");
+                        System.exit(ERR_RC);
+                    }
+                } catch (final NumberFormatException ex) {
+                    System.out.println("Error while loading configuration:");
+                    System.out.println("Invalid maxsizekb entry. Not a number.");
+                    System.exit(ERR_RC);
+                }
+            }
+
+            verbose: {
+                Config.verbose = Boolean.parseBoolean(verboseTemp);
+            }
+
+            hash: {
+                Config.hash = hashTemp;
+
+                final Set<String> algorithms = Security.getAlgorithms("MessageDigest");
+                // linear search
+                boolean supported = false;
+                for (final String algorithm : algorithms) {
+                    if (algorithm.equals(Config.hash)) {
+                        supported = true;
+                    }
+                }
+                if (!supported) {
+                    System.out.println("Error while loading configuration:");
+                    System.out.printf("Unsupported or unknown hash algorithm '%s'\n", Config.hash);
+                    System.exit(ERR_RC);
+                }
+            }
+
+            readSize: {
+                try {
+                    Config.readSize = Integer.parseInt(readSizeTemp);
+                } catch (final NumberFormatException ex) {
+                    System.out.println("Error while loading configuration:");
+                    System.out.println("Invalid readSize entry. Not a number!");
+                    System.exit(ERR_RC);
+                }
+            }
+
+            snapshotFile: {
+                try {
+                    Config.snapshotFile = Path.of(snapshotFileTemp);
+                    if (Files.isDirectory(Config.snapshotFile)) {
+                        System.out.println("Error while loading configuration:");
+                        System.out.println("Bad snapshot file path; must not be directory.");
+                        System.exit(ERR_RC);
+                    }
+                } catch (final Exception ex) {
+                    System.out.println("Error while loading configuration:");
+                    System.out.println("Bad snapshot file path.");
+                    System.exit(ERR_RC);
+                }
+            }
+
+            logfile: {
+                try {
+                    Config.logFile = Path.of(logFileTemp);
+                    if (Files.isDirectory(Config.logFile)) {
+                        System.out.println("Error while loading configuration:");
+                        System.out.println("Bad logfile path; must not be directory.");
+                        System.exit(ERR_RC);
+                    }
+                } catch (final Exception ex) {
+                    System.out.println("Error while loading configuration:");
+                    System.out.println("Bad logfile path.");
+                    System.exit(ERR_RC);
+                }
+            }
         }
     }
 
@@ -653,8 +681,8 @@ public final class gasai {
             }
 
             default_values: {
-                // note(nschultz): '/usr/bin/' is a good default I think because it probably is the first thing maleware (e.g a rootkits) might
-                // temper with in order to make it undectable.
+                // note(nschultz): '/usr/bin/' is a good default I think because it probably is the first thing malware (e.g a rootkits) might
+                // tamper with in order to make it undectable.
                 Config.dirs         = new String[] {isPlatformLinux() ? "/usr/bin/" : System.getProperty("user.home")};
                 Config.delayMillis  = 3;
                 Config.maxSizeKB    = 8192;
@@ -663,7 +691,7 @@ public final class gasai {
                 Config.readSize     = 0;
                 // note(nschultz): it is good to make these configurable for several reason besides given the user
                 // the possiblity two have mutliple versions of a snapshot file.
-                // One reason is that it might be a bit harder for maleware to detect the snapshot file (by name
+                // One reason is that it might be a bit harder for malware to detect the snapshot file (by name
                 // at least) and mess with it.
                 Config.snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
                 Config.logFile      = Path.of(System.getProperty("user.home"), ".gasai.log");
