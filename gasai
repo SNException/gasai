@@ -47,6 +47,8 @@ import java.util.concurrent.atomic.LongAdder;
 //
 // todo(nschultz): What happens when we set a maxsize limit to, say 3 megabytes, and the file gets changed afterwards to a size
 // bigger than this limit? Well, it will get marked with skipped but is that really what we want in this case?
+//
+// todo(nschultz): option to skip non present directories (e.g if they are not yet mounted, or connected)
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -157,11 +159,11 @@ public final class gasai {
         if (list != null) {
             for (final File file : list) {
                 if (file.getName().equals("X11")) {
-                    continue; // Hack for Linux
+                    continue; // note(nschultz): hack for Linux
                 }
                 if ((file.length() / 1024) > Config.maxSizeKB) {
                     skips.add(file.getAbsolutePath());
-                    continue; // prevent possible OOM
+                    continue; // note(nschultz): prevent possible OOM
                 }
 
                 if (file.isFile()) {
@@ -202,6 +204,26 @@ public final class gasai {
         return displayFileName;
     }
 
+    private static long getLastModifiedTime(final Path path) {
+        assert path != null;
+
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (final IOException ex) {
+            return -1;
+        }
+    }
+
+    private static String getTimeStamp(final long millis) {
+        final SimpleDateFormat formatter = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
+        final String date = formatter.format(new Date(millis));
+        return date;
+    }
+
+    private static boolean isPlatformLinux() {
+        return System.getProperty("os.name").equalsIgnoreCase("linux");
+    }
+
     private static String getHash(final String file, final String algorithm) {
         assert file      != null;
         assert algorithm != null;
@@ -209,7 +231,7 @@ public final class gasai {
         if (Config.readSize > 0) { // only read that amount
             try (final FileInputStream in = new FileInputStream(file)) {
                 final byte[] buf = new byte[Config.readSize];
-                final int readBytes = in.read(buf); // does NOT block on empty files since EOF is available
+                final int readBytes = in.read(buf); // note(nschultz): does NOT block on empty files since EOF is available
 
                 final MessageDigest digest = MessageDigest.getInstance(algorithm);
                 final byte[] hash = digest.digest(buf);
@@ -221,7 +243,7 @@ public final class gasai {
                 System.out.println("ERROR gasai: Failed to retrieve hash value: " + ex.toString());
                 System.exit(ERR_HASH);
             }
-        } else { // zero or negative value, so we will read the entire file into memory
+        } else { // note(nschultz): zero or negative value, so we will read the entire file into memory
             try {
                 final byte[] data = Files.readAllBytes(Path.of(file));
                 final MessageDigest digest = MessageDigest.getInstance(algorithm);
@@ -237,23 +259,7 @@ public final class gasai {
         }
 
         assert false : "Unreachable code path.";
-        return null; // will not happen since in case of an error we exit the JVM
-    }
-
-    private static long getLastModifiedTime(final Path path) {
-        assert path != null;
-
-        try {
-            return Files.getLastModifiedTime(path).toMillis();
-        } catch (final IOException ex) {
-            return -1;
-        }
-    }
-
-    private static String getTimeStamp(final long millis) {
-        final SimpleDateFormat formatter = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
-        final String date = formatter.format(new Date(millis));
-        return date;
+        return null; // note(nschultz): will not happen since in case of an error we exit the JVM
     }
 
     private static CheckResults check() {
@@ -277,7 +283,7 @@ public final class gasai {
             log.append("\n\n\n");
         }
 
-        // have to use these wrappers due to stupid '...must be effectively final' bs.
+        // note(nschultz): have to use these wrappers due to stupid '...must be effectively final' bs.
         final LongAdder processed = new LongAdder();
         final LongAdder changed   = new LongAdder();
         final LongAdder added     = new LongAdder();
@@ -291,7 +297,7 @@ public final class gasai {
                 for (int i = 0; i < snapshotLines.length; ++i) {
                     final String line = snapshotLines[i];
 
-                    if (line.split(":").length != 2) continue; // happens when directory is empty
+                    if (line.split(":").length != 2) continue; // note(nschultz): happens when directory is empty
                     final String file = line.split(":")[0];
                     final String hash = line.split(":")[1];
 
@@ -317,11 +323,15 @@ public final class gasai {
         }
         processed.add(currentFiles.size());
 
-        // print all the skipped files first
+        // note(nschultz): print all the skipped files first
         for (int i = 0; i < skippedFiles.size(); ++i) {
             final String displayFileName = getFileNameToDisplay(skippedFiles.get(i));
             System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_YELLOW_FG + "SKIP" + VT_RESET);
             log.append(String.format("  %-59s [ %s ]\n", displayFileName, "SKIP"));
+
+            if (Config.delayMillis > 0) {
+                sleepMillis(Config.delayMillis);
+            }
         }
 
         compare_old_snapshot_with_current_state: {
@@ -353,7 +363,7 @@ public final class gasai {
                 }
             });
 
-            // every file left in this list must be a newly added one, and hence we report it
+            // note(nschultz): every file left in this list must be a newly added one, and hence we report it
             for (int i = 0; i < currentFiles.size(); ++i) {
                 final String displayFileName = getFileNameToDisplay(currentFiles.get(i));
                 System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "ADDED" + VT_RESET);
@@ -402,6 +412,9 @@ public final class gasai {
             for (int i = 0; i < skippedFiles.size(); ++i) {
                 final String displayFileName = getFileNameToDisplay(skippedFiles.get(i));
                 System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_YELLOW_FG + "SKIP" + VT_RESET);
+                if (Config.delayMillis > 0) {
+                    sleepMillis(Config.delayMillis);
+                }
             }
         }
 
@@ -506,8 +519,8 @@ public final class gasai {
         try {
             final String[] lines = Files.readString(rcFile).split("\n");
             for (int i = 0; i < lines.length; ++i) {
-                if (lines[i].strip().startsWith("#")) continue; // skip comments
-                if (lines[i].strip().isEmpty())       continue; // skip empty lines
+                if (lines[i].strip().startsWith("#")) continue; // note(nschultz): skip comments
+                if (lines[i].strip().isEmpty())       continue; // note(nschultz): skip empty lines
 
                 final String[] cfg = lines[i].split("=");
                 if (cfg.length != 2) {
@@ -639,15 +652,22 @@ public final class gasai {
                 Files.delete(rcFile);
             }
 
-            // default values
-            Config.dirs         = new String[] {System.getProperty("user.home")};
-            Config.delayMillis  = 3;
-            Config.maxSizeKB    = 8192;
-            Config.verbose      = false;
-            Config.hash         = "SHA-256";
-            Config.readSize     = 0;
-            Config.snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
-            Config.logFile      = Path.of(System.getProperty("user.home"), ".gasai.log");
+            default_values: {
+                // note(nschultz): '/usr/bin/' is a good default I think because it probably is the first thing maleware (e.g a rootkits) might
+                // temper with in order to make it undectable.
+                Config.dirs         = new String[] {isPlatformLinux() ? "/usr/bin/" : System.getProperty("user.home")};
+                Config.delayMillis  = 3;
+                Config.maxSizeKB    = 8192;
+                Config.verbose      = false;
+                Config.hash         = "SHA-256";
+                Config.readSize     = 0;
+                // note(nschultz): it is good to make these configurable for several reason besides given the user
+                // the possiblity two have mutliple versions of a snapshot file.
+                // One reason is that it might be a bit harder for maleware to detect the snapshot file (by name
+                // at least) and mess with it.
+                Config.snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
+                Config.logFile      = Path.of(System.getProperty("user.home"), ".gasai.log");
+            }
 
             final StringBuilder buffer = new StringBuilder();
             buffer.append("# ").append("\n");
@@ -661,19 +681,28 @@ public final class gasai {
             buffer.append("\n\n\n");
 
             buffer.append("# the directories you wish to check separated by a semicolon").append("\n");
-            buffer.append("dirs=").append(System.getProperty("user.home")).append("\n");
+            buffer.append("dirs=");
+            for (final String dir : Config.dirs) buffer.append(dir + ";");
+            buffer.append("\n");
+
             buffer.append("# wait time in milliseconds before each file check").append("\n");
             buffer.append("delaymillis=").append(String.valueOf(Config.delayMillis)).append("\n");
+
             buffer.append("# do not check files which are bigger than this size").append("\n");
             buffer.append("maxSizekb=").append(String.valueOf(Config.maxSizeKB)).append("\n");
+
             buffer.append("# true or false depending on whether you wish to print verbose information").append("\n");
             buffer.append("verbose=").append(String.valueOf(Config.verbose)).append("\n");
+
             buffer.append("# the hash algorithm").append("\n");
             buffer.append("hash=").append(String.valueOf(Config.hash)).append("\n");
+
             buffer.append("# how many bytes are read from each file for the hash").append("\n");
             buffer.append("readsize=").append(String.valueOf(Config.readSize)).append("\n");
+
             buffer.append("# the path of the snapshotfile").append("\n");
             buffer.append("snapshotfile=").append(String.valueOf(Config.snapshotFile)).append("\n");
+
             buffer.append("# the path of the logfile").append("\n");
             buffer.append("logfile=").append(String.valueOf(Config.logFile)).append("\n");
 
@@ -694,7 +723,7 @@ public final class gasai {
 
     public static void main(final String[] args) {
         check_os: {
-            if (!System.getProperty("os.name").toLowerCase().equals("linux")) {
+            if (!isPlatformLinux()) {
                 System.out.println("gasai is not supported on a non Linux operating system right now.");
                 System.exit(ERR_OS);
             }
