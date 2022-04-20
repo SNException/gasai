@@ -55,6 +55,11 @@ import java.util.concurrent.atomic.LongAdder;
 // todo(nschultz): Print directory and then the files it contains
 //
 // todo(nschultz): Configuration filtering (extension, file-type, etc)
+//
+// todo(nschultz): listFiles() should return map (dirname, list<files>)
+//
+// todo(nschultz): Maybe it would be better if we group the checks (e.g first change for changes, then for missing files and
+// then for added files. Also skipped files.
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -98,13 +103,15 @@ public final class gasai {
         public final int added;
         public final int missing;
         public final int skips;
+        public final int dirsChecked;
 
-        public CheckResults(final int processed, final int changed, final int added, final int missing, final int skips) {
-            this.processed = processed;
-            this.changed   = changed;
-            this.added     = added;
-            this.missing   = missing;
-            this.skips     = skips;
+        public CheckResults(final int processed, final int changed, final int added, final int missing, final int skips, final int dirsChecked) {
+            this.processed   = processed;
+            this.changed     = changed;
+            this.added       = added;
+            this.missing     = missing;
+            this.skips       = skips;
+            this.dirsChecked = dirsChecked;
         }
     }
 
@@ -155,12 +162,16 @@ public final class gasai {
         }
     }
 
-    private static boolean listFiles(final String start, final String filter,
-                                     final ArrayList<String> files, final ArrayList<String> skips,
+    private static boolean listFiles(final String start, 
+                                     final String filter,
+                                     final ArrayList<String> files,
+                                     final ArrayList<String> skips,
+                                     final ArrayList<String> dirs,
                                      final boolean recursive) {
         assert start  != null;
         assert filter != null;
         assert files  != null;
+        assert skips  != null;
 
         final File directory = new File(start);
         final File[] list = directory.listFiles();
@@ -184,7 +195,8 @@ public final class gasai {
                     }
                 } else if (file.isDirectory()) {
                     if (recursive) {
-                        listFiles(file.getAbsolutePath(), filter, files, skips, recursive);
+                        dirs.add(file.getAbsolutePath());
+                        listFiles(file.getAbsolutePath(), filter, files, skips, dirs, recursive);
                     } else {
                         continue;
                     }
@@ -327,9 +339,10 @@ public final class gasai {
 
         final ArrayList<String> currentFiles = new ArrayList<>();
         final ArrayList<String> skippedFiles = new ArrayList<>();
+        final ArrayList<String> dirs         = new ArrayList<>();
         retrieve_current_files: {
             for (int i = 0; i < Config.dirs.length; ++i) {
-                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles, Config.recursive);
+                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles, dirs, Config.recursive);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                     System.exit(ERR_LIST);
@@ -403,7 +416,8 @@ public final class gasai {
                                 changed.intValue(),
                                 added.intValue(),
                                 missing.intValue(),
-                                skippedFiles.size()
+                                skippedFiles.size(),
+                                dirs.size()
         );
     }
 
@@ -413,10 +427,11 @@ public final class gasai {
         final LongAdder fetched                     = new LongAdder();
         final ArrayList<String> files               = new ArrayList<>();
         final ArrayList<String> skippedFiles        = new ArrayList<>();
+        final ArrayList<String> dirs                = new ArrayList<>();
         final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
 
         for (int i = 0; i < Config.dirs.length; ++i) {
-            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles, Config.recursive);
+            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles, dirs, Config.recursive);
             if (!success) {
                 System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                 System.exit(ERR_LIST);
@@ -822,10 +837,18 @@ public final class gasai {
                     final CheckResults results = check();
                     System.out.println();
 
-                    if (Config.dirs.length == 1) {
-                        System.out.printf("gasai has scanned %s directory.\n", Config.dirs.length);
+                    if (!Config.recursive) {
+                        if (Config.dirs.length == 1) {
+                            System.out.printf("gasai has scanned %s directory.\n", Config.dirs.length);
+                        } else {
+                            System.out.printf("gasai has scanned %s directories.\n", Config.dirs.length);
+                        }
                     } else {
-                        System.out.printf("gasai has scanned %s directories.\n", Config.dirs.length);
+                        if (results.dirsChecked == 1) {
+                            System.out.printf("gasai has scanned %s directory.\n", results.dirsChecked);
+                        } else {
+                            System.out.printf("gasai has scanned %s directories.\n", results.dirsChecked);
+                        }
                     }
                     System.out.println();
                     System.out.println("Results:");
