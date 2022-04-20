@@ -51,6 +51,10 @@ import java.util.concurrent.atomic.LongAdder;
 // todo(nschultz): Option to skip non present directories (e.g if they are not yet mounted, or connected)
 //
 // todo(nschultz): What happens if recursive is configured and you specificy another subdirectory
+//
+// todo(nschultz): Print directory and then the files it contains
+//
+// todo(nschultz): Configuration filtering (extension, file-type, etc)
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -288,6 +292,9 @@ public final class gasai {
             log.append(String.format("DELAY     : %s", Config.delayMillis)).append("\n");
             log.append(String.format("HASH      : %s", Config.hash)).append("\n");
             log.append(String.format("READSIZE  : %s", Config.readSize)).append("\n");
+            log.append(String.format("SNAPPATH  : %s", Config.snapshotFile)).append("\n");
+            log.append(String.format("LOGPATH   : %s", Config.logFile)).append("\n");
+            log.append(String.format("RECURSIVE : %s", Config.recursive)).append("\n");
             log.append("\n\n\n");
         }
 
@@ -470,28 +477,22 @@ public final class gasai {
         System.out.println("Configuration file");
         System.out.println("==================");
         System.out.println("gasai uses one config file located in your home directory called .gasairc.");
-        System.out.println("   dirs=dir1;dir2;          # the directories you wish to check");
-        System.out.println("   delaymillis=milliseconds # wait that many ms after each file check");
-        System.out.println("   maxsizekb=size_in_kb     # do not check files that are larger than that");
-        System.out.println("   verbose=false/true       # print additional information while running");
-        System.out.println("   hash=algorithm           # the hash algorithm to use");
-        System.out.println("   readsize=size_in_bytes   # how many bytes to use for the hash");
-        System.out.println("   snapshotfile=path        # the path of the snapshotfile");
-        System.out.println("   logfile=path             # the path of the logfile");
-        System.out.println("   recurisve=false/true     # whether you wish to search recursively");
+        System.out.println("  dirs=dir1;dir2;          # the directories you wish to check");
+        System.out.println("  delaymillis=milliseconds # wait that many ms after each file check");
+        System.out.println("  maxsizekb=size_in_kb     # do not check files that are larger than that");
+        System.out.println("  verbose=false/true       # print additional information while running");
+        System.out.println("  hash=algorithm           # the hash algorithm to use");
+        System.out.println("  readsize=size_in_bytes   # how many bytes to use for the hash");
+        System.out.println("  snapshotfile=path        # the path of the snapshotfile");
+        System.out.println("  logfile=path             # the path of the logfile");
+        System.out.println("  recurisve=false/true     # whether you wish to search recursively");
         System.out.println();
         System.out.println("Usage");
         System.out.println("=====");
         System.out.println("gasai [--OPTION]");
-        System.out.println("Options:");
-        System.out.println("   check   : Check if any hashes have changed since last update run.");
-        System.out.println("   update  : Updates all hashes for the specified directories.");
-        System.out.println("   init    : Create configuration template.");
-        System.out.println("   hashes  : Prints all supported hash algorithms on this platform.");
-        System.out.println("   rc      : Loads the configuration and prints the current settings.");
-        System.out.println("   snap    : Prints the last update time.");
-        System.out.println("   version : Prints the version.");
-        System.out.println("   help    : Prints this message.");
+
+        printOptions();
+
         System.out.println();
         System.out.println("Error codes");
         System.out.println("===========");
@@ -516,6 +517,19 @@ public final class gasai {
         System.out.println("Developed by Niklas Schultz");
         System.out.println("Copyright (c) 2022 Niklas Schultz");
         System.out.println("Licensed under MIT. See LICENSE file for more details.");
+    }
+
+    private static void printOptions() {
+        System.out.println("Options:");
+        System.out.println("  check   : Check if any hashes have changed since last update run.");
+        System.out.println("  update  : Updates all hashes for the specified directories.");
+        System.out.println("  init    : Create configuration template.");
+        System.out.println("  hashes  : Prints all supported hash algorithms on this platform.");
+        System.out.println("  rc      : Loads the configuration and prints the current settings.");
+        System.out.println("  snap    : Prints the last update time.");
+        System.out.println("  options : Prints all supported command line arguments.");
+        System.out.println("  version : Prints the version.");
+        System.out.println("  help    : Prints this message.");
     }
 
     private static void loadRc() {
@@ -895,6 +909,11 @@ public final class gasai {
 
                 case "--help": {
                     printHelp();
+                } break;
+
+                case "--options": {
+                    printHeader();
+                    printOptions();
                 } break;
 
                 case "--version": {
