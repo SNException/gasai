@@ -48,7 +48,11 @@ import java.util.concurrent.atomic.LongAdder;
 // todo(nschultz): What happens when we set a maxsize limit to, say 3 megabytes, and the file gets changed afterwards to a size
 // bigger than this limit? Well, it will get marked with skipped but is that really what we want in this case?
 //
-// todo(nschultz): option to skip non present directories (e.g if they are not yet mounted, or connected)
+// todo(nschultz): Option to skip non present directories (e.g if they are not yet mounted, or connected)
+//
+// todo(nschultz): Option to search non-recursive and recurisve
+//
+// todo(nschultz): What happens if recursive is configured and you specificy another subdirectory
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -149,7 +153,8 @@ public final class gasai {
     }
 
     private static boolean listFiles(final String start, final String filter,
-                                     final ArrayList<String> files, final ArrayList<String> skips) {
+                                     final ArrayList<String> files, final ArrayList<String> skips,
+                                     final boolean recursive) {
         assert start  != null;
         assert filter != null;
         assert files  != null;
@@ -175,7 +180,11 @@ public final class gasai {
                         files.add(file.getAbsolutePath());
                     }
                 } else if (file.isDirectory()) {
-                    listFiles(file.getAbsolutePath(), filter, files, skips);
+                    if (recursive) {
+                        listFiles(file.getAbsolutePath(), filter, files, skips, recursive);
+                    } else {
+                        continue;
+                    }
                 }
             }
             return true;
@@ -314,7 +323,7 @@ public final class gasai {
         final ArrayList<String> skippedFiles = new ArrayList<>();
         retrieve_current_files: {
             for (int i = 0; i < Config.dirs.length; ++i) {
-                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles);
+                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles, true);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                     System.exit(ERR_LIST);
@@ -401,7 +410,7 @@ public final class gasai {
         final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
 
         for (int i = 0; i < Config.dirs.length; ++i) {
-            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles);
+            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles, true);
             if (!success) {
                 System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                 System.exit(ERR_LIST);
