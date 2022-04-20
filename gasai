@@ -50,8 +50,6 @@ import java.util.concurrent.atomic.LongAdder;
 //
 // todo(nschultz): Option to skip non present directories (e.g if they are not yet mounted, or connected)
 //
-// todo(nschultz): Option to search non-recursive and recurisve
-//
 // todo(nschultz): What happens if recursive is configured and you specificy another subdirectory
 public final class gasai {
 
@@ -87,6 +85,7 @@ public final class gasai {
         public static int readSize      = 0;
         public static Path snapshotFile = null;
         public static Path logFile      = null;
+        public static boolean recursive = false;
     }
 
     private static final class CheckResults {
@@ -323,7 +322,7 @@ public final class gasai {
         final ArrayList<String> skippedFiles = new ArrayList<>();
         retrieve_current_files: {
             for (int i = 0; i < Config.dirs.length; ++i) {
-                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles, true);
+                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles, Config.recursive);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                     System.exit(ERR_LIST);
@@ -410,7 +409,7 @@ public final class gasai {
         final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
 
         for (int i = 0; i < Config.dirs.length; ++i) {
-            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles, true);
+            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles, Config.recursive);
             if (!success) {
                 System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                 System.exit(ERR_LIST);
@@ -479,6 +478,7 @@ public final class gasai {
         System.out.println("   readsize=size_in_bytes   # how many bytes to use for the hash");
         System.out.println("   snapshotfile=path        # the path of the snapshotfile");
         System.out.println("   logfile=path             # the path of the logfile");
+        System.out.println("   recurisve=false/true     # whether you wish to search recursively");
         System.out.println();
         System.out.println("Usage");
         System.out.println("=====");
@@ -533,6 +533,7 @@ public final class gasai {
         String readSizeTemp     = null;
         String snapshotFileTemp = null;
         String logFileTemp      = null;
+        String recursiveTemp    = null;
 
         try {
             final String[] lines = Files.readString(rcFile).split("\n");
@@ -557,6 +558,7 @@ public final class gasai {
                     case "readsize"     : { readSizeTemp     = rhs; } break;
                     case "snapshotfile" : { snapshotFileTemp = rhs; } break;
                     case "logfile"      : { logFileTemp      = rhs; } break;
+                    case "recursive"    : { recursiveTemp    = rhs; } break;
 
                     default: {
                         System.out.println("Error while loading configuration:");
@@ -679,6 +681,10 @@ public final class gasai {
                     System.exit(ERR_RC);
                 }
             }
+
+            recursive: {
+                Config.recursive = Boolean.parseBoolean(recursiveTemp);
+            }
         }
     }
 
@@ -704,6 +710,7 @@ public final class gasai {
                 // at least) and mess with it.
                 Config.snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
                 Config.logFile      = Path.of(System.getProperty("user.home"), ".gasai.log");
+                Config.recursive    = false;
             }
 
             final StringBuilder buffer = new StringBuilder();
@@ -742,6 +749,9 @@ public final class gasai {
 
             buffer.append("# the path of the logfile").append("\n");
             buffer.append("logfile=").append(String.valueOf(Config.logFile)).append("\n");
+
+            buffer.append("# whether you wish to search recursively").append("\n");
+            buffer.append("recursive=").append(String.valueOf(Config.recursive)).append("\n");
 
             Files.writeString(rcFile, buffer.toString());
 
@@ -864,6 +874,7 @@ public final class gasai {
                     System.out.printf("  readsize     : %s\n", Config.readSize);
                     System.out.printf("  snapshotfile : %s\n", Config.snapshotFile);
                     System.out.printf("  logfile      : %s\n", Config.logFile);
+                    System.out.printf("  recursive    : %s\n", Config.recursive);
                 } break;
 
                 case "--snap": {
