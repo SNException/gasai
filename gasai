@@ -857,6 +857,11 @@ public final class gasai {
                     System.out.println("  Changed   files: " + results.changed);
                     System.out.println("  Added     files: " + results.added);
                     System.out.println("  Missing   files: " + results.missing);
+                    if (results.changed == 0 && results.added == 0 && results.missing == 0) {
+                        System.out.println(VT_GREEN_FG + "No changes detected!" + VT_RESET);
+                    } else {
+                        System.out.println(VT_RED_FG + "Changes detected!" + VT_RESET);
+                    }
 
                     final double endTime = (double) System.nanoTime();
                     final double elapsedTime = (double) (endTime - startTime) / 1000000000.0d;
