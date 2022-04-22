@@ -832,7 +832,7 @@ public final class gasai {
         }
 
         check_temrinal_size: {
-            if (System.getProperty("os.name").toLowerCase().equals("linux")) {
+            if (isPlatformLinux()) {
                 if (Integer.parseInt(execShellCommandWait("tput lines").strip()) < 25) {
                     System.out.println("gasai requires a minimum of 25 terminal lines.");
                     System.exit(ERR_TERM);
