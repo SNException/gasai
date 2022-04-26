@@ -14,6 +14,7 @@
 // gasai - personal "security" tool for my paranoia :)
 //
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -43,9 +44,6 @@ import java.util.concurrent.atomic.LongAdder;
 // (e.g by touch command). It would be better (?) if the timestamp is written as one of the first lines of the
 // .gasai_hashes file.
 //
-// todo(nschultz): Since we set our own limit of tput cols to 80 we have to do some adjustments for ADDED, SKIPPED, MISSING
-// since we used OK as our "template".
-//
 // todo(nschultz): What happens when we set a maxsize limit to, say 3 megabytes, and the file gets changed afterwards to a size
 // bigger than this limit? Well, it will get marked with skipped but is that really what we want in this case?
 //
@@ -61,6 +59,10 @@ import java.util.concurrent.atomic.LongAdder;
 //
 // todo(nschultz): Maybe it would be better if we group the checks (e.g first change for changes, then for missing files and
 // then for added files. Also skipped files.
+//
+// todo(nschultz): If a filename contains special characters (e.g kanji) than
+// String.length() might "incorrect" value. This causes the formatting (max 80 chars)
+// to be wrong.
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -94,6 +96,7 @@ public final class gasai {
         public static Path snapshotFile = null;
         public static Path logFile      = null;
         public static boolean recursive = false;
+        public static int bufSize       = 0;
     }
 
     private static final class CheckResults {
@@ -267,10 +270,15 @@ public final class gasai {
                 System.exit(ERR_HASH);
             }
         } else { // note(nschultz): zero or negative value, so we will read the entire file into memory
-            try {
-                final byte[] data = Files.readAllBytes(Path.of(file));
+            try (final BufferedInputStream in = new BufferedInputStream(new FileInputStream(file))) {
                 final MessageDigest digest = MessageDigest.getInstance(algorithm);
-                final byte[] hash = digest.digest(data);
+                for (;;) {
+                    final byte[] buf = new byte[Config.bufSize];
+                    final int readBytes = in.read(buf);
+                    if (readBytes < 0) break;
+                    digest.update(buf, 0, readBytes);
+                }
+                final byte[] hash = digest.digest();
                 final StringBuilder sHash = new StringBuilder(hash.length);
                 for (final byte b : hash) sHash.append(String.format("%02X", b));
 
@@ -455,7 +463,7 @@ public final class gasai {
                 final String displayFileName = getFileNameToDisplay(file);
 
                 if (Config.verbose) System.out.printf("%s\n", currentHash);
-                System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "FETCHED" + VT_RESET);
+                System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "SNAP" + VT_RESET);
                 fetched.increment();
 
                 if (Config.delayMillis > 0) {
@@ -500,6 +508,7 @@ public final class gasai {
         System.out.println("  snapshotfile=path        # the path of the snapshotfile");
         System.out.println("  logfile=path             # the path of the logfile");
         System.out.println("  recurisve=false/true     # whether you wish to search recursively");
+        System.out.println("  bufsize=size_in_bytes    # the buffer size used while reading");
         System.out.println();
         System.out.println("Usage");
         System.out.println("=====");
@@ -587,6 +596,7 @@ public final class gasai {
         String snapshotFileTemp = null;
         String logFileTemp      = null;
         String recursiveTemp    = null;
+        String bufSizeTemp      = null;
 
         try {
             final String[] lines = Files.readString(rcFile).split("\n");
@@ -612,6 +622,7 @@ public final class gasai {
                     case "snapshotfile" : { snapshotFileTemp = rhs; } break;
                     case "logfile"      : { logFileTemp      = rhs; } break;
                     case "recursive"    : { recursiveTemp    = rhs; } break;
+                    case "bufsize"      : { bufSizeTemp      = rhs; } break;
 
                     default: {
                         System.out.println("Error while loading configuration:");
@@ -738,6 +749,21 @@ public final class gasai {
             recursive: {
                 Config.recursive = Boolean.parseBoolean(recursiveTemp);
             }
+
+            bufsize: {
+                try {
+                    Config.bufSize = Integer.parseInt(bufSizeTemp);
+                    if (Config.bufSize <= 0) {
+                        System.out.println("Error while loading configuration:");
+                        System.out.println("Invalid bufsize entry. Must be at least 1.");
+                        System.exit(ERR_RC);
+                    }
+                } catch (final NumberFormatException ex) {
+                    System.out.println("Error while loading configuration:");
+                    System.out.println("Invalid bufsize entry. Not a number!");
+                    System.exit(ERR_RC);
+                }
+            }
         }
     }
 
@@ -766,6 +792,7 @@ public final class gasai {
                 Config.snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
                 Config.logFile      = Path.of(System.getProperty("user.home"), ".gasai.log");
                 Config.recursive    = false;
+                Config.bufSize      = 4096; // note(nschultz): idk, likely a page I guess
             }
 
             final StringBuilder buffer = new StringBuilder();
@@ -807,6 +834,9 @@ public final class gasai {
 
             buffer.append("# whether you wish to search recursively").append("\n");
             buffer.append("recursive=").append(String.valueOf(Config.recursive)).append("\n");
+
+            buffer.append("# the bufsize (in bytes) used while reading").append("\n");
+            buffer.append("bufsize=").append(String.valueOf(Config.bufSize)).append("\n");
 
             Files.writeString(rcFile, buffer.toString());
 
@@ -946,6 +976,7 @@ public final class gasai {
                     System.out.printf("  snapshotfile : %s\n", Config.snapshotFile);
                     System.out.printf("  logfile      : %s\n", Config.logFile);
                     System.out.printf("  recursive    : %s\n", Config.recursive);
+                    System.out.printf("  bufsize      : %s\n", Config.bufSize);
                 } break;
 
                 case "--snap": {
