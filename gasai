@@ -35,9 +35,6 @@ import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.atomic.LongAdder;
 
-// todo(nschultz): Sort files alphabetically before processing
-// java.util.Collections.sort(list)
-//
 // todo(nschultz): What happens when we set a maxsize limit to, say 3 megabytes, and the file gets changed afterwards to a size
 // bigger than this limit? Well, it will get marked with skipped but is that really what we want in this case?
 //
@@ -101,6 +98,7 @@ public final class gasai {
         public static boolean recursive       = false;
         public static int bufSize             = 0;
         public static boolean snapTamperCheck = false;
+        public static boolean sort            = false;
     }
 
     private static final class CheckResults {
@@ -174,7 +172,8 @@ public final class gasai {
                                      final ArrayList<String> skips,
                                      final ArrayList<String> permissions,
                                      final ArrayList<String> dirs,
-                                     final boolean recursive) {
+                                     final boolean recursive,
+                                     final boolean shouldSort) {
         assert start  != null;
         assert filter != null;
         assert files  != null;
@@ -182,6 +181,10 @@ public final class gasai {
 
         final File directory = new File(start);
         final File[] list = directory.listFiles();
+        if (shouldSort) {
+            Arrays.sort(list);
+        }
+
         if (list != null) {
             for (final File file : list) {
                 if (file.getName().equals("X11")) {
@@ -209,7 +212,7 @@ public final class gasai {
                 } else if (file.isDirectory()) {
                     if (recursive) {
                         dirs.add(file.getAbsolutePath());
-                        listFiles(file.getAbsolutePath(), filter, files, skips, permissions, dirs, recursive);
+                        listFiles(file.getAbsolutePath(), filter, files, skips, permissions, dirs, recursive, shouldSort);
                     } else {
                         continue;
                     }
@@ -336,6 +339,7 @@ public final class gasai {
             log.append(String.format("RECURSIVE       : %s", Config.recursive)).append("\n");
             log.append(String.format("BUFSIZE         : %s", Config.bufSize)).append("\n");
             log.append(String.format("SNAPTAMPERCHECK : %s", Config.snapTamperCheck)).append("\n");
+            log.append(String.format("SORT            : %s", Config.sort)).append("\n");
             log.append("\n\n\n");
         } 
         // note(nschultz): have to use these wrappers due to stupid '...must be effectively final' bs.
@@ -371,7 +375,7 @@ public final class gasai {
         final ArrayList<String> dirs             = new ArrayList<>();
         retrieve_current_files: {
             for (int i = 0; i < Config.dirs.length; ++i) {
-                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles, permissionsFiles, dirs, Config.recursive);
+                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles, permissionsFiles, dirs, Config.recursive, Config.sort);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                     System.exit(ERR_LIST);
@@ -472,7 +476,7 @@ public final class gasai {
         final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
 
         for (int i = 0; i < Config.dirs.length; ++i) {
-            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles, permissionsFiles, dirs, Config.recursive);
+            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles, permissionsFiles, dirs, Config.recursive, Config.sort);
             if (!success) {
                 System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                 System.exit(ERR_LIST);
@@ -557,6 +561,7 @@ public final class gasai {
         System.out.println("  recurisve=false/true       # whether you wish to search recursively");
         System.out.println("  bufsize=size_in_bytes      # the buffer size used while reading");
         System.out.println("  snaptampercheck=false/true # whether you wish to perform basic tampering check");
+        System.out.println("  sort=false/true            # whether you wish to process in sorted order");
         System.out.println();
         System.out.println("Usage");
         System.out.println("=====");
@@ -645,6 +650,7 @@ public final class gasai {
         String recursiveTemp       = null;
         String bufSizeTemp         = null;
         String snapTamperCheckTemp = null;
+        String sortTemp            = null;
 
         try {
             final String[] lines = Files.readString(rcFile).split("\n");
@@ -672,6 +678,7 @@ public final class gasai {
                     case "recursive"       : { recursiveTemp       = rhs; } break;
                     case "bufsize"         : { bufSizeTemp         = rhs; } break;
                     case "snaptampercheck" : { snapTamperCheckTemp = rhs; } break;
+                    case "sort"            : { sortTemp            = rhs; } break;
 
                     default: {
                         System.out.println("Error while loading configuration:");
@@ -817,6 +824,10 @@ public final class gasai {
             snaptampercheck: {
                 Config.snapTamperCheck = Boolean.parseBoolean(snapTamperCheckTemp);
             }
+
+            sort: {
+                Config.sort = Boolean.parseBoolean(sortTemp);
+            }
         }
     }
 
@@ -834,7 +845,7 @@ public final class gasai {
                 // tamper with in order to make it undectable.
                 Config.dirs            = new String[] {isPlatformLinux() ? "/usr/bin/" : System.getProperty("user.home")};
                 Config.delayMillis     = 3;
-                Config.maxSizeKB       = 8192;
+                Config.maxSizeKB       = 16384;
                 Config.verbose         = false;
                 Config.hash            = "SHA-256";
                 Config.readSize        = 0;
@@ -847,6 +858,7 @@ public final class gasai {
                 Config.recursive       = false;
                 Config.bufSize         = 4096; // note(nschultz): idk, likely a page I guess
                 Config.snapTamperCheck = false;
+                Config.sort            = true;
             }
 
             final StringBuilder buffer = new StringBuilder();
@@ -894,6 +906,9 @@ public final class gasai {
 
             buffer.append("# whether you wish to perform basic tampering check on snapshot file").append("\n");
             buffer.append("snaptampercheck=").append(String.valueOf(Config.snapTamperCheck)).append("\n");
+
+            buffer.append("# whether you wish to process files in sorted order").append("\n");
+            buffer.append("sort=").append(String.valueOf(Config.sort)).append("\n");
 
             Files.writeString(rcFile, buffer.toString());
 
@@ -1040,6 +1055,7 @@ public final class gasai {
                     System.out.printf("  recursive       : %s\n", Config.recursive);
                     System.out.printf("  bufsize         : %s\n", Config.bufSize);
                     System.out.printf("  snaptampercheck : %s\n", Config.snapTamperCheck);
+                    System.out.printf("  sort            : %s\n", Config.sort);
                 } break;
 
                 case "--time": {
