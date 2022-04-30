@@ -31,18 +31,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.atomic.LongAdder;
 
 // todo(nschultz): Sort files alphabetically before processing
 // java.util.Collections.sort(list)
-//
-// todo(nschultz): Make this script usable on windows
-//
-// todo(nschultz): Right now the last modified time of the .gasai_hashes file is used to tell the user
-// agains which snapshot he is running the check. However that is error prone since the file could be changed
-// (e.g by touch command). It would be better (?) if the timestamp is written as one of the first lines of the
-// .gasai_hashes file.
 //
 // todo(nschultz): What happens when we set a maxsize limit to, say 3 megabytes, and the file gets changed afterwards to a size
 // bigger than this limit? Well, it will get marked with skipped but is that really what we want in this case?
@@ -71,6 +65,8 @@ import java.util.concurrent.atomic.LongAdder;
 // todo(nschultz): Config.files -> same as Config.dirs but specific files you want to check
 //
 // todo(nschultz): Make README file more useful. Add howto (e.g put hash file on usb stick for best practice)
+//
+// todo(nschultz): Keep a history (multiple log files)
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -89,22 +85,22 @@ public final class gasai {
     private static final int ERR_LIST    = -8;
     private static final int ERR_HASH    = -16;
     private static final int ERR_RC      = -32;
-    private static final int ERR_OS      = -64;
-    private static final int ERR_INIT    = -128;
+    private static final int ERR_INIT    = -64;
 
     private static final class Config {
         private Config() { assert false; }
 
-        public static String[] dirs     = null;
-        public static int delayMillis   = 0;
-        public static int maxSizeKB     = 0;
-        public static boolean verbose   = false;
-        public static String hash       = null;
-        public static int readSize      = 0;
-        public static Path snapshotFile = null;
-        public static Path logFile      = null;
-        public static boolean recursive = false;
-        public static int bufSize       = 0;
+        public static String[] dirs           = null;
+        public static int delayMillis         = 0;
+        public static int maxSizeKB           = 0;
+        public static boolean verbose         = false;
+        public static String hash             = null;
+        public static int readSize            = 0;
+        public static Path snapshotFile       = null;
+        public static Path logFile            = null;
+        public static boolean recursive       = false;
+        public static int bufSize             = 0;
+        public static boolean snapTamperCheck = false;
     }
 
     private static final class CheckResults {
@@ -245,14 +241,14 @@ public final class gasai {
         return displayFileName;
     }
 
-    private static long getLastModifiedTime(final Path path) {
-        assert path != null;
-
+    private static String getSnapshotFileTime() {
         try {
-            return Files.getLastModifiedTime(path).toMillis();
-        } catch (final IOException ex) {
-            return -1;
+            return Files.readAllLines(Config.snapshotFile).get(0);
+        } catch (final Exception ex) {
+            System.out.println("ERROR gasai: Failed to read snapshot file!");
+            System.exit(ERR_SNAP);
         }
+        return null; // note(nschultz): Unreachable
     }
 
     private static String getTimeStamp(final long millis) {
@@ -309,30 +305,39 @@ public final class gasai {
     }
 
     private static CheckResults check() {
-        System.out.printf(VT_BOLD + "Checking hashes (%s)..." + VT_RESET + "\n", Config.hash);
-
         if (!Files.exists(Config.snapshotFile)) {
             System.out.println("No snapshot file found!");
             System.out.println("Did you run 'gasai --update' beforehand?");
             System.exit(ERR_SNAP);
         }
 
-        final StringBuilder log = new StringBuilder(8192);
-        log_header: {
-            log.append(String.format("TIME      : %s", getTimeStamp(System.currentTimeMillis()))).append("\n");
-            log.append(String.format("SNAP      : %s", getTimeStamp(getLastModifiedTime(Config.snapshotFile)))).append("\n");
-            log.append(String.format("DIRS      : %s", Arrays.toString(Config.dirs))).append("\n");
-            log.append(String.format("MAXSIZEKB : %s", Config.maxSizeKB)).append("\n");
-            log.append(String.format("DELAY     : %s", Config.delayMillis)).append("\n");
-            log.append(String.format("HASH      : %s", Config.hash)).append("\n");
-            log.append(String.format("READSIZE  : %s", Config.readSize)).append("\n");
-            log.append(String.format("SNAPPATH  : %s", Config.snapshotFile)).append("\n");
-            log.append(String.format("LOGPATH   : %s", Config.logFile)).append("\n");
-            log.append(String.format("RECURSIVE : %s", Config.recursive)).append("\n");
-            log.append(String.format("BUFSIZE   : %s", Config.bufSize)).append("\n");
-            log.append("\n\n\n");
+        if (Config.snapTamperCheck) {
+            if (Config.snapshotFile.toFile().lastModified() != 0) {
+                System.out.println(VT_RED_FG + "---------------------------------------------------------------------" + VT_RESET);
+                System.out.println(VT_RED_FG + "SUSPICIOUS: It looks like the snapshot file has been tampered with!!!" + VT_RESET);
+                System.out.println(VT_RED_FG + "---------------------------------------------------------------------" + VT_RESET);
+                sleepMillis(5000);
+            }
         }
 
+        System.out.printf(VT_BOLD + "Checking hashes (%s)..." + VT_RESET + "\n", Config.hash);
+
+        final StringBuilder log = new StringBuilder(8192);
+        log_header: {
+            log.append(String.format("TIME            : %s", getTimeStamp(System.currentTimeMillis()))).append("\n");
+            log.append(String.format("SNAPTIME        : %s", getSnapshotFileTime())).append("\n");
+            log.append(String.format("DIRS            : %s", Arrays.toString(Config.dirs))).append("\n");
+            log.append(String.format("MAXSIZEKB       : %s", Config.maxSizeKB)).append("\n");
+            log.append(String.format("DELAY           : %s", Config.delayMillis)).append("\n");
+            log.append(String.format("HASH            : %s", Config.hash)).append("\n");
+            log.append(String.format("READSIZE        : %s", Config.readSize)).append("\n");
+            log.append(String.format("SNAPPATH        : %s", Config.snapshotFile)).append("\n");
+            log.append(String.format("LOGPATH         : %s", Config.logFile)).append("\n");
+            log.append(String.format("RECURSIVE       : %s", Config.recursive)).append("\n");
+            log.append(String.format("BUFSIZE         : %s", Config.bufSize)).append("\n");
+            log.append(String.format("SNAPTAMPERCHECK : %s", Config.snapTamperCheck)).append("\n");
+            log.append("\n\n\n");
+        } 
         // note(nschultz): have to use these wrappers due to stupid '...must be effectively final' bs.
         final LongAdder processed = new LongAdder();
         final LongAdder changed   = new LongAdder();
@@ -344,7 +349,7 @@ public final class gasai {
             try {
                 final String[] snapshotLines = Files.readString(Config.snapshotFile).split("\n");
 
-                for (int i = 0; i < snapshotLines.length; ++i) {
+                for (int i = 1; i < snapshotLines.length; ++i) { // note(nschultz): start with one in order to skip the timestamp line
                     final String line = snapshotLines[i];
 
                     if (line.split(":").length != 2) continue; // note(nschultz): happens when directory is empty
@@ -452,7 +457,7 @@ public final class gasai {
                                 added.intValue(),
                                 missing.intValue(),
                                 skippedFiles.size() + permissionsFiles.size(),
-                                dirs.size()
+                                dirs.size() + 1
         );
     }
 
@@ -511,11 +516,16 @@ public final class gasai {
 
         write_to_disk: {
             final StringBuilder dump = new StringBuilder(mapping.size() * 256);
+            dump.append(getTimeStamp(System.currentTimeMillis())).append("\n");
+
             mapping.forEach((final String file, final String sha) -> {
                 dump.append(String.format("%s:%s\n", file, sha));
             });
             try {
                 Files.writeString(Config.snapshotFile, dump.toString(), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                if (Config.snapTamperCheck) {
+                    Config.snapshotFile.toFile().setLastModified(0);
+                }
             } catch (final IOException ex) {
                 System.out.println("ERROR gasai: Failed to write update result to disk: " + ex.toString());
                 System.exit(ERR_SNAP);
@@ -536,16 +546,17 @@ public final class gasai {
         System.out.println("Configuration file");
         System.out.println("==================");
         System.out.println("gasai uses one config file located in your home directory called .gasairc.");
-        System.out.println("  dirs=dir1;dir2;          # the directories you wish to check");
-        System.out.println("  delaymillis=milliseconds # wait that many ms after each file check");
-        System.out.println("  maxsizekb=size_in_kb     # do not check files that are larger than that");
-        System.out.println("  verbose=false/true       # print additional information while running");
-        System.out.println("  hash=algorithm           # the hash algorithm to use");
-        System.out.println("  readsize=size_in_bytes   # how many bytes to use for the hash");
-        System.out.println("  snapshotfile=path        # the path of the snapshotfile");
-        System.out.println("  logfile=path             # the path of the logfile");
-        System.out.println("  recurisve=false/true     # whether you wish to search recursively");
-        System.out.println("  bufsize=size_in_bytes    # the buffer size used while reading");
+        System.out.println("  dirs=dir1;dir2;            # the directories you wish to check");
+        System.out.println("  delaymillis=milliseconds   # wait that many ms after each file check");
+        System.out.println("  maxsizekb=size_in_kb       # do not check files that are larger than that");
+        System.out.println("  verbose=false/true         # print additional information while running");
+        System.out.println("  hash=algorithm             # the hash algorithm to use");
+        System.out.println("  readsize=size_in_bytes     # how many bytes to use for the hash");
+        System.out.println("  snapshotfile=path          # the path of the snapshotfile");
+        System.out.println("  logfile=path               # the path of the logfile");
+        System.out.println("  recurisve=false/true       # whether you wish to search recursively");
+        System.out.println("  bufsize=size_in_bytes      # the buffer size used while reading");
+        System.out.println("  snaptampercheck=false/true # whether you wish to perform basic tampering check");
         System.out.println();
         System.out.println("Usage");
         System.out.println("=====");
@@ -563,8 +574,7 @@ public final class gasai {
         System.out.println("ERR_LIST   -8");
         System.out.println("ERR_HASH   -16");
         System.out.println("ERR_RC     -32");
-        System.out.println("ERR_OS     -64");
-        System.out.println("ERR_INIT   -128");
+        System.out.println("ERR_INIT   -64");
         System.out.println();
         System.out.println("Files");
         System.out.println("=====");
@@ -586,7 +596,7 @@ public final class gasai {
         System.out.println("  init    : Create configuration template.");
         System.out.println("  hashes  : Prints all supported hash algorithms on this platform.");
         System.out.println("  rc      : Loads the configuration and prints the current settings.");
-        System.out.println("  snap    : Prints the last update time.");
+        System.out.println("  time    : Prints the last update time.");
         System.out.println("  options : Prints all supported command line arguments.");
         System.out.println("  version : Prints the version.");
         System.out.println("  help    : Prints this message.");
@@ -624,16 +634,17 @@ public final class gasai {
             System.exit(ERR_RC);
         }
 
-        String dirsTemp         = null;
-        String delayMillisTemp  = null;
-        String maxSizeKBTemp    = null;
-        String verboseTemp      = null;
-        String hashTemp         = null;
-        String readSizeTemp     = null;
-        String snapshotFileTemp = null;
-        String logFileTemp      = null;
-        String recursiveTemp    = null;
-        String bufSizeTemp      = null;
+        String dirsTemp            = null;
+        String delayMillisTemp     = null;
+        String maxSizeKBTemp       = null;
+        String verboseTemp         = null;
+        String hashTemp            = null;
+        String readSizeTemp        = null;
+        String snapshotFileTemp    = null;
+        String logFileTemp         = null;
+        String recursiveTemp       = null;
+        String bufSizeTemp         = null;
+        String snapTamperCheckTemp = null;
 
         try {
             final String[] lines = Files.readString(rcFile).split("\n");
@@ -650,16 +661,17 @@ public final class gasai {
                 final String rhs = cfg[1];
 
                 switch (lhs.toLowerCase()) {
-                    case "dirs"         : { dirsTemp         = rhs; } break;
-                    case "delaymillis"  : { delayMillisTemp  = rhs; } break;
-                    case "maxsizekb"    : { maxSizeKBTemp    = rhs; } break;
-                    case "verbose"      : { verboseTemp      = rhs; } break;
-                    case "hash"         : { hashTemp         = rhs; } break;
-                    case "readsize"     : { readSizeTemp     = rhs; } break;
-                    case "snapshotfile" : { snapshotFileTemp = rhs; } break;
-                    case "logfile"      : { logFileTemp      = rhs; } break;
-                    case "recursive"    : { recursiveTemp    = rhs; } break;
-                    case "bufsize"      : { bufSizeTemp      = rhs; } break;
+                    case "dirs"            : { dirsTemp            = rhs; } break;
+                    case "delaymillis"     : { delayMillisTemp     = rhs; } break;
+                    case "maxsizekb"       : { maxSizeKBTemp       = rhs; } break;
+                    case "verbose"         : { verboseTemp         = rhs; } break;
+                    case "hash"            : { hashTemp            = rhs; } break;
+                    case "readsize"        : { readSizeTemp        = rhs; } break;
+                    case "snapshotfile"    : { snapshotFileTemp    = rhs; } break;
+                    case "logfile"         : { logFileTemp         = rhs; } break;
+                    case "recursive"       : { recursiveTemp       = rhs; } break;
+                    case "bufsize"         : { bufSizeTemp         = rhs; } break;
+                    case "snaptampercheck" : { snapTamperCheckTemp = rhs; } break;
 
                     default: {
                         System.out.println("Error while loading configuration:");
@@ -801,6 +813,10 @@ public final class gasai {
                     System.exit(ERR_RC);
                 }
             }
+
+            snaptampercheck: {
+                Config.snapTamperCheck = Boolean.parseBoolean(snapTamperCheckTemp);
+            }
         }
     }
 
@@ -816,20 +832,21 @@ public final class gasai {
             default_values: {
                 // note(nschultz): '/usr/bin/' is a good default I think because it probably is the first thing malware (e.g a rootkits) might
                 // tamper with in order to make it undectable.
-                Config.dirs         = new String[] {isPlatformLinux() ? "/usr/bin/" : System.getProperty("user.home")};
-                Config.delayMillis  = 3;
-                Config.maxSizeKB    = 8192;
-                Config.verbose      = false;
-                Config.hash         = "SHA-256";
-                Config.readSize     = 0;
+                Config.dirs            = new String[] {isPlatformLinux() ? "/usr/bin/" : System.getProperty("user.home")};
+                Config.delayMillis     = 3;
+                Config.maxSizeKB       = 8192;
+                Config.verbose         = false;
+                Config.hash            = "SHA-256";
+                Config.readSize        = 0;
                 // note(nschultz): it is good to make these configurable for several reason besides given the user
                 // the possiblity two have mutliple versions of a snapshot file.
                 // One reason is that it might be a bit harder for malware to detect the snapshot file (by name
                 // at least) and mess with it.
-                Config.snapshotFile = Path.of(System.getProperty("user.home"), ".gasai_hashes");
-                Config.logFile      = Path.of(System.getProperty("user.home"), ".gasai.log");
-                Config.recursive    = false;
-                Config.bufSize      = 4096; // note(nschultz): idk, likely a page I guess
+                Config.snapshotFile    = Path.of(System.getProperty("user.home"), ".gasai_hashes");
+                Config.logFile         = Path.of(System.getProperty("user.home"), ".gasai.log");
+                Config.recursive       = false;
+                Config.bufSize         = 4096; // note(nschultz): idk, likely a page I guess
+                Config.snapTamperCheck = false;
             }
 
             final StringBuilder buffer = new StringBuilder();
@@ -875,6 +892,9 @@ public final class gasai {
             buffer.append("# the bufsize (in bytes) used while reading").append("\n");
             buffer.append("bufsize=").append(String.valueOf(Config.bufSize)).append("\n");
 
+            buffer.append("# whether you wish to perform basic tampering check on snapshot file").append("\n");
+            buffer.append("snaptampercheck=").append(String.valueOf(Config.snapTamperCheck)).append("\n");
+
             Files.writeString(rcFile, buffer.toString());
 
             System.out.println("New configuration has been created.");
@@ -893,8 +913,13 @@ public final class gasai {
     public static void main(final String[] args) {
         check_os: {
             if (!isPlatformLinux()) {
-                System.out.println("gasai is not supported on a non Linux operating system right now.");
-                System.exit(ERR_OS);
+                System.out.println(VT_YELLOW_FG + "gasai has only been tested on Linux." + VT_RESET);
+                System.out.println("Do you wish to continue anyway? Type 'yes' if you do.");
+                final Scanner stdin = new Scanner(System.in);
+                final String input = stdin.next();
+                if (!input.equalsIgnoreCase("yes")) {
+                    System.exit(ERR_SUCCESS);
+                }
             }
         }
 
@@ -1016,20 +1041,22 @@ public final class gasai {
                     System.out.printf("  bufsize      : %s\n", Config.bufSize);
                 } break;
 
-                case "--snap": {
+                case "--time": {
                     printHeader();
                     loadRc();
 
-                    final long millis = getLastModifiedTime(Config.snapshotFile);
-                    if (millis < 0) {
-                        System.out.println("Failed to retrieve last update time.");
-                        System.out.println("Perhaps you have no snapshot file yet?");
-                        System.out.println("If that is the case try running 'gasai --update'");
+                    if (Files.notExists(Config.snapshotFile)) {
+                        System.out.println("No snapshot file found!");
+                        System.out.println("Did you already run 'gasai --update'?");
                         System.exit(ERR_SNAP);
                     }
-                    final String lastUpdateTime = getTimeStamp(millis);
                     System.out.println(Config.snapshotFile.toString());
-                    System.out.println("  " + lastUpdateTime);
+                    try {
+                        System.out.println("  " + Files.readAllLines(Config.snapshotFile).get(0));
+                    } catch (final Exception ex) {
+                        System.out.println("ERROR gasai: Failed to read snapshot file!");
+                        System.exit(ERR_SNAP);
+                    }
                 } break;
 
                 case "--help": {
