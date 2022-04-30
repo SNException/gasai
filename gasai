@@ -451,7 +451,7 @@ public final class gasai {
                                 changed.intValue(),
                                 added.intValue(),
                                 missing.intValue(),
-                                skippedFiles.size(),
+                                skippedFiles.size() + permissionsFiles.size(),
                                 dirs.size()
         );
     }
@@ -521,7 +521,7 @@ public final class gasai {
                 System.exit(ERR_SNAP);
             }
         }
-        return new UpdateResults(fetched.intValue(), skippedFiles.size());
+        return new UpdateResults(fetched.intValue(), skippedFiles.size() + permissionsFiles.size());
     }
 
     private static void printHelp() {
