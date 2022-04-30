@@ -1030,15 +1030,16 @@ public final class gasai {
                         System.out.println(findRc());
                     }
                     for (int i = 0; i < Config.dirs.length; ++i) System.out.printf("  Dir%s         : %s\n", i + 1, Config.dirs[i]);
-                    System.out.printf("  delaymillis  : %s\n", Config.delayMillis);
-                    System.out.printf("  maxsizekb    : %s\n", Config.maxSizeKB);
-                    System.out.printf("  verbose      : %s\n", Config.verbose);
-                    System.out.printf("  hash         : %s\n", Config.hash);
-                    System.out.printf("  readsize     : %s\n", Config.readSize);
-                    System.out.printf("  snapshotfile : %s\n", Config.snapshotFile);
-                    System.out.printf("  logfile      : %s\n", Config.logFile);
-                    System.out.printf("  recursive    : %s\n", Config.recursive);
-                    System.out.printf("  bufsize      : %s\n", Config.bufSize);
+                    System.out.printf("  delaymillis     : %s\n", Config.delayMillis);
+                    System.out.printf("  maxsizekb       : %s\n", Config.maxSizeKB);
+                    System.out.printf("  verbose         : %s\n", Config.verbose);
+                    System.out.printf("  hash            : %s\n", Config.hash);
+                    System.out.printf("  readsize        : %s\n", Config.readSize);
+                    System.out.printf("  snapshotfile    : %s\n", Config.snapshotFile);
+                    System.out.printf("  logfile         : %s\n", Config.logFile);
+                    System.out.printf("  recursive       : %s\n", Config.recursive);
+                    System.out.printf("  bufsize         : %s\n", Config.bufSize);
+                    System.out.printf("  snaptampercheck : %s\n", Config.snapTamperCheck);
                 } break;
 
                 case "--time": {
