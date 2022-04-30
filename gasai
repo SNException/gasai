@@ -63,6 +63,14 @@ import java.util.concurrent.atomic.LongAdder;
 // todo(nschultz): If a filename contains special characters (e.g kanji) than
 // String.length() might "incorrect" value. This causes the formatting (max 80 chars)
 // to be wrong.
+//
+// todo(nschultz): Rot13 the .gasai_hashes files if Config.rot13 is true. This way it makes the hash values less transparent and
+// in case of malware which checks files for hahses more secure. Because if the malware decides to change the hashes in the file
+// to avoid detection it would be wrong since it gets shuffled on gasai --check call.
+//
+// todo(nschultz): Config.files -> same as Config.dirs but specific files you want to check
+//
+// todo(nschultz): Make README file more useful. Add howto (e.g put hash file on usb stick for best practice)
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -168,6 +176,7 @@ public final class gasai {
                                      final String filter,
                                      final ArrayList<String> files,
                                      final ArrayList<String> skips,
+                                     final ArrayList<String> permissions,
                                      final ArrayList<String> dirs,
                                      final boolean recursive) {
         assert start  != null;
@@ -182,6 +191,12 @@ public final class gasai {
                 if (file.getName().equals("X11")) {
                     continue; // note(nschultz): hack for Linux
                 }
+
+                if (!Files.isReadable(file.toPath())) {
+                    permissions.add(file.getAbsolutePath());
+                    continue;
+                }
+
                 if ((file.length() / 1024) > Config.maxSizeKB) {
                     skips.add(file.getAbsolutePath());
                     continue; // note(nschultz): prevent possible OOM
@@ -198,7 +213,7 @@ public final class gasai {
                 } else if (file.isDirectory()) {
                     if (recursive) {
                         dirs.add(file.getAbsolutePath());
-                        listFiles(file.getAbsolutePath(), filter, files, skips, dirs, recursive);
+                        listFiles(file.getAbsolutePath(), filter, files, skips, permissions, dirs, recursive);
                     } else {
                         continue;
                     }
@@ -314,6 +329,7 @@ public final class gasai {
             log.append(String.format("SNAPPATH  : %s", Config.snapshotFile)).append("\n");
             log.append(String.format("LOGPATH   : %s", Config.logFile)).append("\n");
             log.append(String.format("RECURSIVE : %s", Config.recursive)).append("\n");
+            log.append(String.format("BUFSIZE   : %s", Config.bufSize)).append("\n");
             log.append("\n\n\n");
         }
 
@@ -344,12 +360,13 @@ public final class gasai {
             }
         }
 
-        final ArrayList<String> currentFiles = new ArrayList<>();
-        final ArrayList<String> skippedFiles = new ArrayList<>();
-        final ArrayList<String> dirs         = new ArrayList<>();
+        final ArrayList<String> currentFiles     = new ArrayList<>();
+        final ArrayList<String> skippedFiles     = new ArrayList<>();
+        final ArrayList<String> permissionsFiles = new ArrayList<>();
+        final ArrayList<String> dirs             = new ArrayList<>();
         retrieve_current_files: {
             for (int i = 0; i < Config.dirs.length; ++i) {
-                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles, dirs, Config.recursive);
+                final boolean success = listFiles(Config.dirs[i], null, currentFiles, skippedFiles, permissionsFiles, dirs, Config.recursive);
                 if (!success) {
                     System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                     System.exit(ERR_LIST);
@@ -358,57 +375,68 @@ public final class gasai {
         }
         processed.add(currentFiles.size());
 
-        // note(nschultz): print all the skipped files first
-        for (int i = 0; i < skippedFiles.size(); ++i) {
-            final String displayFileName = getFileNameToDisplay(skippedFiles.get(i));
-            System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_YELLOW_FG + "SKIP" + VT_RESET);
-            log.append(String.format("  %-59s [ %s ]\n", displayFileName, "SKIP"));
+        skipped_files: {
+            for (int i = 0; i < skippedFiles.size(); ++i) {
+                final String displayFileName = getFileNameToDisplay(skippedFiles.get(i));
+                System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_YELLOW_FG + "SKIP" + VT_RESET);
+                log.append(String.format("  %-59s [ %s ]\n", displayFileName, "SKIP"));
 
-            if (Config.delayMillis > 0) {
-                sleepMillis(Config.delayMillis);
+                if (Config.delayMillis > 0) {
+                    sleepMillis(Config.delayMillis);
+                }
+            }
+            for (int i = 0; i < permissionsFiles.size(); ++i) {
+                final String displayFileName = getFileNameToDisplay(permissionsFiles.get(i));
+                System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_YELLOW_FG + "ROOT" + VT_RESET);
+                log.append(String.format("  %-59s [ %s ]\n", displayFileName, "ROOT"));
+
+                if (Config.delayMillis > 0) {
+                    sleepMillis(Config.delayMillis);
+                }
             }
         }
 
         compare_old_snapshot_with_current_state: {
+            for (final String file : currentFiles) {
+                if (Config.delayMillis > 0) {
+                    sleepMillis(Config.delayMillis);
+                }
+                final String displayFileName = getFileNameToDisplay(file);
+
+                if (oldSnapshot.get(file) == null) {
+                    System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "ADDED" + VT_RESET);
+                    log.append(String.format("  %-59s [ %s ]\n", displayFileName, "ADDED"));
+                    added.increment();
+                    continue;
+                }
+
+                final String currentHash = getHash(file, Config.hash);
+                final String oldHash     = oldSnapshot.get(file); // can not be null since we checked earlier.
+                oldSnapshot.remove(file);
+                if (currentHash.equals(oldHash)) {
+                    if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
+                    System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "OK" + VT_RESET);
+                    log.append(String.format("  %-59s [ %s ]\n", displayFileName, "OK"));
+                } else {
+                    if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
+                    System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "CHANGED" + VT_RESET);
+                    log.append(String.format("  %-59s [ %s ]\n", displayFileName, "CHANGED"));
+                    changed.increment();
+                }
+            }
+
+            // note(nschultz): Every file left in this map must be a missing one
             oldSnapshot.forEach((final String file, final String sha) -> {
                 final String displayFileName = getFileNameToDisplay(file);
 
-                currentFiles.remove(file);
+                System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "MISSING" + VT_RESET);
+                log.append(String.format("  %-59s [ %s ]\n", displayFileName, "MISSING"));
+                missing.increment();
 
-                if (Files.exists(Path.of(file))) {
-                    final String currentHash = getHash(file, Config.hash);
-
-                    if (currentHash.toString().equals(sha)) {
-                        if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
-                        System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_GREEN_FG + "OK" + VT_RESET);
-                        log.append(String.format("  %-59s [ %s ]\n", displayFileName, "OK"));
-                    } else {
-                        if (Config.verbose) System.out.printf("%s\n", currentHash.toString());
-                        System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "CHANGED" + VT_RESET);
-                        log.append(String.format("  %-59s [ %s ]\n", displayFileName, "CHANGED"));
-                        changed.increment();
-                    }
-                } else {
-                    System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "MISSING" + VT_RESET);
-                    log.append(String.format("  %-59s [ %s ]\n", displayFileName, "MISSING"));
-                    missing.increment();
-                }
                 if (Config.delayMillis > 0) {
                     sleepMillis(Config.delayMillis);
                 }
             });
-
-            // note(nschultz): every file left in this list must be a newly added one, and hence we report it
-            for (int i = 0; i < currentFiles.size(); ++i) {
-                final String displayFileName = getFileNameToDisplay(currentFiles.get(i));
-                System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_RED_FG + "ADDED" + VT_RESET);
-                log.append(String.format("  %-59s [ %s ]\n", displayFileName, "ADDED"));
-                added.increment();
-
-                if (Config.delayMillis > 0) {
-                    sleepMillis(Config.delayMillis);
-                }
-            }
         }
 
         write_to_log: {
@@ -434,11 +462,12 @@ public final class gasai {
         final LongAdder fetched                     = new LongAdder();
         final ArrayList<String> files               = new ArrayList<>();
         final ArrayList<String> skippedFiles        = new ArrayList<>();
+        final ArrayList<String> permissionsFiles    = new ArrayList<>();
         final ArrayList<String> dirs                = new ArrayList<>();
         final LinkedHashMap<String, String> mapping = new LinkedHashMap<>();
 
         for (int i = 0; i < Config.dirs.length; ++i) {
-            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles, dirs, Config.recursive);
+            final boolean success = listFiles(Config.dirs[i], null, files, skippedFiles, permissionsFiles, dirs, Config.recursive);
             if (!success) {
                 System.out.printf("ERROR gasai: Failed to list all files in '%s'\n", Config.dirs[i]);
                 System.exit(ERR_LIST);
@@ -449,6 +478,14 @@ public final class gasai {
             for (int i = 0; i < skippedFiles.size(); ++i) {
                 final String displayFileName = getFileNameToDisplay(skippedFiles.get(i));
                 System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_YELLOW_FG + "SKIP" + VT_RESET);
+                if (Config.delayMillis > 0) {
+                    sleepMillis(Config.delayMillis);
+                }
+            }
+
+            for (int i = 0; i < permissionsFiles.size(); ++i) {
+                final String displayFileName = getFileNameToDisplay(permissionsFiles.get(i));
+                System.out.printf("  %-59s [ %s ]\n", displayFileName, VT_YELLOW_FG + "ROOT" + VT_RESET);
                 if (Config.delayMillis > 0) {
                     sleepMillis(Config.delayMillis);
                 }
