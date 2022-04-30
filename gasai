@@ -993,7 +993,9 @@ public final class gasai {
                     if (results.changed == 0 && results.added == 0 && results.missing == 0) {
                         System.out.println(VT_GREEN_FG + "No changes detected!" + VT_RESET);
                     } else {
-                        System.out.println(VT_RED_FG + "Changes detected!" + VT_RESET);
+                        System.out.println(VT_RED_FG + "--------------------------------" + VT_RESET);
+                        System.out.println(VT_RED_FG + "SUSPICIOUS: Changes detected !!!" + VT_RESET);
+                        System.out.println(VT_RED_FG + "--------------------------------" + VT_RESET);
                     }
 
                     final double endTime = (double) System.nanoTime();
