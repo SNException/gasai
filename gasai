@@ -62,18 +62,16 @@ import java.util.concurrent.atomic.LongAdder;
 // todo(nschultz): Make README file more useful. Add howto (e.g put hash file on usb stick for best practice)
 //
 // todo(nschultz): Keep a history (multiple log files)
-//
-// todo(nschultz): Config ansi colors
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
 
-    private static final String VT_RESET     = "\u001B[0m";
-    private static final String VT_BOLD      = "\u001B[1m";
-    private static final String VT_RED_FG    = "\u001B[31m";
-    private static final String VT_GREEN_FG  = "\u001B[32m";
-    private static final String VT_YELLOW_FG = "\u001B[33m";
-    private static final String VT_PURPLE_FG = "\u001B[35m";
+    private static String VT_RESET     = null;
+    private static String VT_BOLD      = null;
+    private static String VT_RED_FG    = null;
+    private static String VT_GREEN_FG  = null;
+    private static String VT_YELLOW_FG = null;
+    private static String VT_PURPLE_FG = null;
 
     private static final int ERR_SUCCESS =  0;
     private static final int ERR_ARGS    = -1;
@@ -98,6 +96,7 @@ public final class gasai {
         public static int bufSize             = 0;
         public static boolean snapTamperCheck = false;
         public static boolean sort            = false;
+        public static boolean vtColors        = false;
     }
 
     private static final class CheckResults {
@@ -331,6 +330,7 @@ public final class gasai {
             log.append(String.format("BUFSIZE         : %s", Config.bufSize)).append("\n");
             log.append(String.format("SNAPTAMPERCHECK : %s", Config.snapTamperCheck)).append("\n");
             log.append(String.format("SORT            : %s", Config.sort)).append("\n");
+            log.append(String.format("VTCOLORS        : %s", Config.vtColors)).append("\n");
             log.append("\n\n\n");
         } 
         // note(nschultz): have to use these wrappers due to stupid '...must be effectively final' bs.
@@ -533,6 +533,7 @@ public final class gasai {
         System.out.println("  bufsize=size_in_bytes      # the buffer size used while reading");
         System.out.println("  snaptampercheck=false/true # whether you wish to perform basic tampering check");
         System.out.println("  sort=false/true            # whether you wish to process in sorted order");
+        System.out.println("  vtColors=false/true        # whether you wish to use colors in the output");
         System.out.println();
         System.out.println("Usage");
         System.out.println("=====");
@@ -628,6 +629,7 @@ public final class gasai {
         String bufSizeTemp         = null;
         String snapTamperCheckTemp = null;
         String sortTemp            = null;
+        String vtColorsTemp        = null;
 
         try {
             final String[] lines = Files.readString(rcFile).split("\n");
@@ -655,6 +657,7 @@ public final class gasai {
                     case "bufsize"         : { bufSizeTemp         = rhs; } break;
                     case "snaptampercheck" : { snapTamperCheckTemp = rhs; } break;
                     case "sort"            : { sortTemp            = rhs; } break;
+                    case "vtcolors"        : { vtColorsTemp        = rhs; } break;
 
                     default: {
                         System.out.println("Error while loading configuration:");
@@ -789,6 +792,26 @@ public final class gasai {
             sort: {
                 Config.sort = Boolean.parseBoolean(sortTemp);
             }
+
+            sort: {
+                Config.vtColors= Boolean.parseBoolean(vtColorsTemp);
+
+                if (Config.vtColors) {
+                    VT_RESET     = "\u001B[0m";
+                    VT_BOLD      = "\u001B[1m";
+                    VT_RED_FG    = "\u001B[31m";
+                    VT_GREEN_FG  = "\u001B[32m";
+                    VT_YELLOW_FG = "\u001B[33m";
+                    VT_PURPLE_FG = "\u001B[35m";
+                } else {
+                    VT_RESET     = "";
+                    VT_BOLD      = "";
+                    VT_RED_FG    = "";
+                    VT_GREEN_FG  = "";
+                    VT_YELLOW_FG = "";
+                    VT_PURPLE_FG = "";
+                }
+            }
         }
     }
 
@@ -819,6 +842,7 @@ public final class gasai {
                 Config.bufSize         = 4096; // note(nschultz): idk, likely a page I guess
                 Config.snapTamperCheck = true;
                 Config.sort            = true;
+                Config.vtColors        = true;
             }
 
             final StringBuilder buffer = new StringBuilder();
@@ -866,6 +890,9 @@ public final class gasai {
 
             buffer.append("# whether you wish to process files in sorted order").append("\n");
             buffer.append("sort=").append(String.valueOf(Config.sort)).append("\n");
+
+            buffer.append("# whether you wish to use colors in the output").append("\n");
+            buffer.append("vtColors=").append(String.valueOf(Config.vtColors)).append("\n");
 
             Files.writeString(rcFile, buffer.toString());
 
@@ -920,8 +947,8 @@ public final class gasai {
 
             switch (option) {
                 case "--check": {
-                    printHeader();
                     loadRc();
+                    printHeader();
 
                     final double startTime = (double) System.nanoTime();
 
@@ -963,8 +990,8 @@ public final class gasai {
                 } break;
 
                 case "--update": {
-                    printHeader();
                     loadRc();
+                    printHeader();
 
                     final double startTime = (double) System.nanoTime();
                     final UpdateResults result = update();
@@ -981,12 +1008,14 @@ public final class gasai {
                 } break;
 
                 case "--init": {
+                    loadRc();
                     printHeader();
 
                     init();
                 } break;
 
                 case "--hashes": {
+                    loadRc();
                     printHeader();
 
                     System.out.println("The following hash algorithms are supported on this platform:");
@@ -997,9 +1026,9 @@ public final class gasai {
                 } break;
 
                 case "--rc": {
+                    loadRc();
                     printHeader();
 
-                    loadRc();
                     final Path rcFile = findRc();
                     if (rcFile != null) { // note(nschultz): should never be null since loadRc already checks that...
                         System.out.println(findRc());
@@ -1015,11 +1044,12 @@ public final class gasai {
                     System.out.printf("  bufsize         : %s\n", Config.bufSize);
                     System.out.printf("  snaptampercheck : %s\n", Config.snapTamperCheck);
                     System.out.printf("  sort            : %s\n", Config.sort);
+                    System.out.printf("  vtColors        : %s\n", Config.vtColors);
                 } break;
 
                 case "--time": {
-                    printHeader();
                     loadRc();
+                    printHeader();
 
                     if (Files.notExists(Config.snapshotFile)) {
                         System.out.println("No snapshot file found!");
@@ -1040,6 +1070,7 @@ public final class gasai {
                 } break;
 
                 case "--options": {
+                    loadRc();
                     printHeader();
                     printOptions();
                 } break;
