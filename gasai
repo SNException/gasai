@@ -64,6 +64,8 @@ import java.util.concurrent.atomic.LongAdder;
 // todo(nschultz): Make README file more useful. Add howto (e.g put hash file on usb stick for best practice)
 //
 // todo(nschultz): Keep a history (multiple log files)
+//
+// todo(nschultz): Config ansi colors
 public final class gasai {
 
     private static final String VERSION = "0.1.0";
@@ -844,8 +846,8 @@ public final class gasai {
                 // note(nschultz): '/usr/bin/' is a good default I think because it probably is the first thing malware (e.g a rootkits) might
                 // tamper with in order to make it undectable.
                 Config.dirs            = new String[] {isPlatformLinux() ? "/usr/bin/" : System.getProperty("user.home")};
-                Config.delayMillis     = 3;
-                Config.maxSizeKB       = 16384;
+                Config.delayMillis     = 5;
+                Config.maxSizeKB       = 65536;
                 Config.verbose         = false;
                 Config.hash            = "SHA-256";
                 Config.readSize        = 0;
@@ -857,7 +859,7 @@ public final class gasai {
                 Config.logFile         = Path.of(System.getProperty("user.home"), ".gasai.log");
                 Config.recursive       = false;
                 Config.bufSize         = 4096; // note(nschultz): idk, likely a page I guess
-                Config.snapTamperCheck = false;
+                Config.snapTamperCheck = true;
                 Config.sort            = true;
             }
 
