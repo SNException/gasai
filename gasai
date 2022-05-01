@@ -33,6 +33,7 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.atomic.LongAdder;
 
 // todo(nschultz): What happens when we set a maxsize limit to, say 3 megabytes, and the file gets changed afterwards to a size
@@ -1034,7 +1035,7 @@ public final class gasai {
                     printHeader();
 
                     System.out.println("The following hash algorithms are supported on this platform:");
-                    final Set<String> algorithms = Security.getAlgorithms("MessageDigest");
+                    final Set<String> algorithms = new TreeSet<>(Security.getAlgorithms("MessageDigest"));
                     for (final String algorithm : algorithms) {
                         System.out.println("  " + algorithm);
                     }
