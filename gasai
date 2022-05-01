@@ -1008,9 +1008,6 @@ public final class gasai {
                 } break;
 
                 case "--init": {
-                    loadRc();
-                    printHeader();
-
                     init();
                 } break;
 
